@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
+import * as db from './lib/db';
 
 // ═══ THEME ═══
 const C = {
@@ -94,13 +95,14 @@ function Select({ label, value, onChange, options=[] }) {
   );
 }
 
-function NavBar() {
+function NavBar({ student }) {
+  const initial = student?.name?.[0]?.toUpperCase() || "S";
   return (
     <div style={{ background:"#fff", borderBottom:`1px solid ${C.gray200}`, padding:"10px 24px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
       <img src={LOGO_BASE64} alt="GR Educational" style={{ height:36 }} />
       <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-        <span style={{ fontSize:13, color:C.gray500 }}>student@demo.com</span>
-        <div style={{ width:32, height:32, borderRadius:"50%", background:C.primary, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, fontWeight:700 }}>S</div>
+        <span style={{ fontSize:13, color:C.gray500 }}>{student?.name || student?.email || ""}</span>
+        <div style={{ width:32, height:32, borderRadius:"50%", background:C.primary, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, fontWeight:700 }}>{initial}</div>
       </div>
     </div>
   );
@@ -110,20 +112,11 @@ function NavBar() {
 function SignIn({ onSignIn, onRegister }) {
   const [mode, setMode] = useState("mobile");
   const [mobile, setMobile] = useState("");
-  const [otp, setOtp] = useState("");
-  const [otpSent, setOtpSent] = useState(false);
-  const [otpTimer, setOtpTimer] = useState(0);
-  const [email, setEmail] = useState("student@demo.com");
-  const [pass, setPass] = useState("demo123");
-  const [forgotMobile, setForgotMobile] = useState("");
-  const [forgotStep, setForgotStep] = useState(1);
-  const [forgotOtp, setForgotOtp] = useState("");
-  const [newPass, setNewPass] = useState("");
-  const [newPassConfirm, setNewPassConfirm] = useState("");
+  const [email, setEmail] = useState("");
+  const [pass, setPass] = useState("");
+  const [forgotInput, setForgotInput] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-
-  useEffect(() => { if (otpTimer > 0) { const t = setTimeout(() => setOtpTimer(otpTimer-1), 1000); return () => clearTimeout(t); } }, [otpTimer]);
 
   return (
     <div style={{ minHeight:"100vh", background:`linear-gradient(135deg, ${C.blue50} 0%, #f0f2f5 50%, ${C.blue50} 100%)`, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
@@ -131,36 +124,60 @@ function SignIn({ onSignIn, onRegister }) {
         <div style={{ textAlign:"center", marginBottom:28 }}>
           <div style={{ width:56, height:56, borderRadius:14, background:"linear-gradient(135deg, #0E1B2E, #1E3A5F)", display:"inline-flex", alignItems:"center", justifyContent:"center", color:"#fff", fontWeight:800, fontSize:20, marginBottom:14 }}>GR</div>
           <h1 style={{ fontSize:24, fontWeight:800, color:C.gray900, margin:0 }}>{mode === "forgot" ? "Reset Password" : "Welcome Back"}</h1>
-          <p style={{ color:C.gray500, fontSize:14, marginTop:6 }}>{mode === "forgot" ? "Enter mobile to reset" : "GR Educational Consultancy"}</p>
+          <p style={{ color:C.gray500, fontSize:14, marginTop:6 }}>{mode === "forgot" ? "We'll send a reset link to your email" : "GR Educational Consultancy"}</p>
         </div>
         {error && <div style={{ background:C.redBg, color:C.red, padding:"8px 14px", borderRadius:8, fontSize:13, marginBottom:14 }}>{error}</div>}
         {success && <div style={{ background:C.greenBg, color:C.green, padding:"8px 14px", borderRadius:8, fontSize:13, marginBottom:14 }}>{success}</div>}
 
         {mode === "forgot" && <>
-          {forgotStep === 1 && <><Field label="Registered Mobile" value={forgotMobile} onChange={v=>setForgotMobile(v.replace(/\D/g,"").slice(0,10))} placeholder="10-digit mobile" /><Btn onClick={()=>{if(forgotMobile.length!==10){setError("Enter valid mobile");return;}setError("");setForgotStep(2);setOtpTimer(30);}} style={{width:"100%",justifyContent:"center"}}>Send OTP</Btn></>}
-          {forgotStep === 2 && <><div style={{background:C.gray50,borderRadius:8,padding:"10px 14px",marginBottom:14,fontSize:13,color:C.gray600}}>OTP sent to +91 {forgotMobile} {otpTimer>0&&<span style={{color:C.orange}}>· {otpTimer}s</span>}</div><Field label="Enter OTP" value={forgotOtp} onChange={v=>setForgotOtp(v.replace(/\D/g,"").slice(0,6))} /><Btn onClick={()=>{if(forgotOtp.length<4){setError("Enter valid OTP");return;}setError("");setForgotStep(3);}} style={{width:"100%",justifyContent:"center"}}>Verify OTP</Btn></>}
-          {forgotStep === 3 && <><Field label="New Password" value={newPass} onChange={setNewPass} type="password" placeholder="Min 6 characters" /><Field label="Confirm Password" value={newPassConfirm} onChange={setNewPassConfirm} type="password" /><Btn onClick={()=>{if(newPass.length<6){setError("Min 6 characters");return;}if(newPass!==newPassConfirm){setError("Passwords don't match");return;}setSuccess("Password reset! Please login.");setTimeout(()=>{setMode("mobile");setSuccess("");setForgotStep(1);},2000);}} variant="success" style={{width:"100%",justifyContent:"center"}}>Reset Password</Btn></>}
-          <p style={{textAlign:"center",marginTop:16,fontSize:13}}><span onClick={()=>{setMode("mobile");setError("");setForgotStep(1);}} style={{color:C.primary,cursor:"pointer",fontWeight:600}}>← Back to Login</span></p>
+          <Field label="Email or Mobile Number" value={forgotInput} onChange={v=>setForgotInput(v.trim())} placeholder="your@email.com or 10-digit mobile" />
+          {!success && <Btn onClick={async ()=>{
+            setError("");
+            const val = forgotInput.trim();
+            if (!val) { setError("Enter your email or mobile"); return; }
+            const isMobileOnly = !val.includes('@') && /^\d{10}$/.test(val.replace(/\D/g,""));
+            if (isMobileOnly) { setSuccess("Mobile-only accounts: please contact your admin or teacher to reset your password."); return; }
+            try {
+              await db.auth.resetPassword(val);
+              setSuccess("Reset link sent! Check your email inbox.");
+            } catch(e) { setError(e.message || "Failed to send reset link. Check your email address."); }
+          }} style={{width:"100%",justifyContent:"center"}}>Send Reset Link</Btn>}
+          <p style={{textAlign:"center",marginTop:16,fontSize:13}}><span onClick={()=>{setMode("mobile");setError("");setSuccess("");setForgotInput("");}} style={{color:C.primary,cursor:"pointer",fontWeight:600}}>← Back to Login</span></p>
         </>}
 
         {mode !== "forgot" && <>
           <div style={{ display:"flex", gap:2, background:C.gray100, borderRadius:8, padding:3, marginBottom:20 }}>
-            {[{v:"mobile",l:"📱 Mobile OTP"},{v:"email",l:"📧 Email"}].map(t=>(
-              <button key={t.v} onClick={()=>{setMode(t.v);setError("");}} style={{flex:1,padding:"8px",fontSize:13,fontWeight:600,borderRadius:6,border:"none",cursor:"pointer",background:mode===t.v?"#fff":"transparent",color:mode===t.v?C.gray800:C.gray500,boxShadow:mode===t.v?"0 1px 3px rgba(0,0,0,0.1)":"none"}}>{t.l}</button>
+            {[{v:"mobile",l:"📱 Mobile"},{v:"email",l:"📧 Email"}].map(t=>(
+              <button key={t.v} onClick={()=>{setMode(t.v);setError("");setPass("");setMobile("");}} style={{flex:1,padding:"8px",fontSize:13,fontWeight:600,borderRadius:6,border:"none",cursor:"pointer",background:mode===t.v?"#fff":"transparent",color:mode===t.v?C.gray800:C.gray500,boxShadow:mode===t.v?"0 1px 3px rgba(0,0,0,0.1)":"none"}}>{t.l}</button>
             ))}
           </div>
           {mode === "mobile" && <>
-            <Field label="Mobile Number" value={mobile} onChange={v=>{setMobile(v.replace(/\D/g,"").slice(0,10));setOtpSent(false);}} type="tel" placeholder="10-digit mobile" />
-            {!otpSent ? <Btn onClick={()=>{if(mobile.length!==10){setError("Enter valid mobile");return;}setError("");setOtpSent(true);setOtpTimer(30);}} style={{width:"100%",justifyContent:"center",background:"linear-gradient(135deg,#0E1B2E,#1E3A5F)"}}>Send OTP</Btn> : <>
-              <div style={{background:"#f0fdf4",borderRadius:8,padding:"8px 12px",marginBottom:14,fontSize:13,color:C.green,display:"flex",justifyContent:"space-between"}}><span>OTP sent to +91 {mobile}</span>{otpTimer>0?<span style={{color:C.orange,fontWeight:600}}>{otpTimer}s</span>:<button onClick={()=>setOtpTimer(30)} style={{background:"none",border:"none",color:C.primary,fontWeight:600,cursor:"pointer",fontSize:13}}>Resend</button>}</div>
-              <Field label="Enter OTP" value={otp} onChange={v=>setOtp(v.replace(/\D/g,"").slice(0,6))} placeholder="6-digit OTP" />
-              <Btn onClick={()=>{if(otp.length<4){setError("Enter valid OTP");return;}onSignIn();}} variant="success" style={{width:"100%",justifyContent:"center"}}>Verify & Login</Btn>
-            </>}
+            <Field label="Mobile Number" value={mobile} onChange={v=>{setMobile(v.replace(/\D/g,"").slice(0,10));}} type="tel" placeholder="10-digit mobile" />
+            <Field label="Password" value={pass} onChange={v=>{setPass(v);setError("");}} type="password" placeholder="Enter password" />
+            <Btn onClick={async ()=>{
+              if(mobile.length!==10){setError("Enter valid mobile");return;}
+              if(!pass){setError("Enter password");return;}
+              setError("");
+              try {
+                const { session } = await db.auth.signIn(`91${mobile}@grapp.in`, pass);
+                const s = await db.students.getByAuthId(session.user.id);
+                if (!s) { await db.auth.signOut(); setError("Account not found. Please register or contact your admin."); return; }
+                onSignIn(s);
+              } catch(e) { setError("Invalid mobile or password"); }
+            }} style={{width:"100%",justifyContent:"center"}}>Sign In</Btn>
           </>}
           {mode === "email" && <>
-            <Field label="Email" value={email} onChange={setEmail} type="email" placeholder="Enter email" />
-            <Field label="Password" value={pass} onChange={setPass} type="password" placeholder="Enter password" />
-            <Btn onClick={()=>onSignIn()} style={{width:"100%",justifyContent:"center"}}>Sign In</Btn>
+            <Field label="Email" value={email} onChange={v=>{setEmail(v);setError("");}} type="email" placeholder="Enter email" />
+            <Field label="Password" value={pass} onChange={v=>{setPass(v);setError("");}} type="password" placeholder="Enter password" />
+            <Btn onClick={async ()=>{
+              setError("");
+              try {
+                const { session } = await db.auth.signIn(email.trim(), pass);
+                const s = await db.students.getByAuthId(session.user.id);
+                if (!s) { await db.auth.signOut(); setError("Account not found. Please register or contact your admin."); return; }
+                onSignIn(s);
+              } catch(e) { setError("Invalid email or password"); }
+            }} style={{width:"100%",justifyContent:"center"}}>Sign In</Btn>
           </>}
           <div style={{textAlign:"right",marginTop:12}}><span onClick={()=>{setMode("forgot");setError("");}} style={{fontSize:13,color:C.primary,cursor:"pointer"}}>Forgot Password?</span></div>
           <div style={{borderTop:`1px solid ${C.gray200}`,marginTop:16,paddingTop:16}}><p style={{textAlign:"center",fontSize:13,color:C.gray500}}>New student? <span onClick={onRegister} style={{color:C.primary,cursor:"pointer",fontWeight:600}}>Register here</span></p></div>
@@ -174,14 +191,7 @@ function SignIn({ onSignIn, onRegister }) {
 function Registration({ onDone }) {
   const [form, setForm] = useState({ first:"", last:"", mobile:"", email:"", stream:"", course:"", studentClass:"", pass:"", confirm:"" });
   const [step, setStep] = useState(1);
-  const [mobileVerified, setMobileVerified] = useState(false);
-  const [otpSent, setOtpSent] = useState(false);
-  const [otpTimer, setOtpTimer] = useState(0);
-  const [otpCode, setOtpCode] = useState("");
-  const [verifyMethod, setVerifyMethod] = useState(null);
   const [error, setError] = useState("");
-
-  useEffect(() => { if (otpTimer > 0) { const t = setTimeout(() => setOtpTimer(otpTimer-1), 1000); return () => clearTimeout(t); } }, [otpTimer]);
 
   const STREAM_COURSES = {
     "Engineering":{icon:"⚙️",courses:["MHT CET PCM","JEE Main","JEE Advanced"]},
@@ -204,7 +214,7 @@ function Registration({ onDone }) {
           <h1 style={{ fontSize:22, fontWeight:800, color:C.gray900, margin:0 }}>New Registration</h1>
         </div>
         <div style={{ display:"flex", gap:4, marginBottom:24 }}>
-          {["Personal Info","Stream & Exam","Verify","Password"].map((s,i) => (
+          {["Personal Info","Stream & Exam","Password"].map((s,i) => (
             <div key={i} style={{ flex:1, textAlign:"center" }}>
               <div style={{ height:4, borderRadius:2, background:i<step?C.green:i===step-1?C.primary:C.gray200, marginBottom:6 }} />
               <span style={{ fontSize:10, color:i<step?C.green:C.gray500, fontWeight:600 }}>{s}</span>
@@ -216,7 +226,7 @@ function Registration({ onDone }) {
         {step === 1 && <>
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}><Field label="First Name *" value={form.first} onChange={v=>setForm({...form,first:v})} /><Field label="Last Name" value={form.last} onChange={v=>setForm({...form,last:v})} /></div>
           <Field label="Mobile *" value={form.mobile} onChange={v=>setForm({...form,mobile:v.replace(/\D/g,"").slice(0,10)})} type="tel" placeholder="10-digit mobile" />
-          <Field label="Email (optional)" value={form.email} onChange={v=>setForm({...form,email:v})} type="email" />
+          <Field label="Email" value={form.email} onChange={v=>setForm({...form,email:v})} type="email" placeholder="Optional — needed for email login" />
           <Btn onClick={()=>{if(!form.first.trim()){setError("First name required");return;}if(form.mobile.length!==10){setError("Enter valid mobile");return;}setError("");setStep(2);}} style={{width:"100%",justifyContent:"center"}}>Continue →</Btn>
           <p style={{textAlign:"center",marginTop:16,fontSize:13,color:C.gray500}}>Already registered? <span onClick={onDone} style={{color:C.primary,cursor:"pointer",fontWeight:600}}>Sign In</span></p>
         </>}
@@ -248,33 +258,76 @@ function Registration({ onDone }) {
         </>}
 
         {step === 3 && <>
-          <Card style={{background:C.gray50,marginBottom:16,padding:"14px 18px"}}><div style={{fontSize:13,color:C.gray600,lineHeight:2}}>
+          <Card style={{background:C.gray50,marginBottom:16,padding:"12px 16px"}}><div style={{fontSize:13,color:C.gray600,lineHeight:2}}>
             <div style={{display:"flex",justifyContent:"space-between"}}><span>Name:</span><strong>{form.first} {form.last}</strong></div>
-            <div style={{display:"flex",justifyContent:"space-between"}}><span>Stream:</span><strong>{form.stream}</strong></div>
             <div style={{display:"flex",justifyContent:"space-between"}}><span>Exam:</span><strong style={{color:C.primary}}>{form.course}</strong></div>
             <div style={{display:"flex",justifyContent:"space-between"}}><span>Class:</span><strong>{CLASS_OPTIONS.find(c=>c.value===form.studentClass)?.label}</strong></div>
           </div></Card>
-          {!mobileVerified ? <>
-            {!verifyMethod && <><label style={{fontSize:13,fontWeight:600,color:C.gray700,display:"block",marginBottom:8}}>Verify your identity (choose one)</label>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:8}}>
-                <button onClick={()=>setVerifyMethod("mobile")} style={{padding:"16px",borderRadius:10,border:`2px solid ${C.gray200}`,background:"#fff",cursor:"pointer",textAlign:"center"}}><div style={{fontSize:28,marginBottom:6}}>📱</div><div style={{fontSize:14,fontWeight:700}}>Mobile OTP</div><div style={{fontSize:12,color:C.gray500}}>+91 {form.mobile}</div></button>
-                <button onClick={()=>{if(!form.email){setError("No email entered");return;}setVerifyMethod("email");}} style={{padding:"16px",borderRadius:10,border:`2px solid ${C.gray200}`,background:form.email?"#fff":C.gray50,cursor:form.email?"pointer":"not-allowed",textAlign:"center",opacity:form.email?1:0.5}}><div style={{fontSize:28,marginBottom:6}}>📧</div><div style={{fontSize:14,fontWeight:700}}>Email OTP</div><div style={{fontSize:12,color:C.gray500}}>{form.email||"No email"}</div></button>
-              </div></>}
-            {verifyMethod && <Card style={{border:`1.5px solid ${C.gray200}`,padding:"16px 18px"}}>
-              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}><span style={{fontSize:22}}>{verifyMethod==="mobile"?"📱":"📧"}</span><div style={{flex:1}}><div style={{fontSize:14,fontWeight:700}}>Verify via {verifyMethod==="mobile"?"Mobile":"Email"}</div><div style={{fontSize:13,color:C.gray500}}>OTP sent to {verifyMethod==="mobile"?`+91 ${form.mobile}`:form.email}</div></div><button onClick={()=>{setVerifyMethod(null);setOtpSent(false);setOtpCode("");}} style={{background:"none",border:"none",cursor:"pointer",fontSize:12,color:C.primary,fontWeight:600}}>Change</button></div>
-              {!otpSent?<Btn onClick={()=>{setOtpSent(true);setOtpTimer(30);}} style={{width:"100%",justifyContent:"center"}}>Send OTP</Btn>:<>
-                <div style={{background:"#f0fdf4",borderRadius:8,padding:"8px 12px",marginBottom:10,fontSize:13,color:C.green,display:"flex",justifyContent:"space-between"}}><span>✓ OTP sent</span>{otpTimer>0?<span style={{color:C.orange,fontWeight:600}}>{otpTimer}s</span>:<button onClick={()=>setOtpTimer(30)} style={{background:"none",border:"none",color:C.primary,fontWeight:600,cursor:"pointer",fontSize:13}}>Resend</button>}</div>
-                <Field label="Enter OTP" value={otpCode} onChange={v=>setOtpCode(v.replace(/\D/g,"").slice(0,6))} /><Btn onClick={()=>{if(otpCode.length<4){setError("Enter valid OTP");return;}setError("");setMobileVerified(true);}} variant="success" style={{width:"100%",justifyContent:"center"}}>Verify OTP</Btn></>}
-            </Card>}
-          </> : <Card style={{background:C.greenBg,border:`1px solid ${C.green}`,padding:"14px 18px",textAlign:"center"}}><span style={{fontSize:15,color:C.green,fontWeight:700}}>✓ {verifyMethod==="mobile"?`Mobile +91 ${form.mobile}`:`Email ${form.email}`} verified!</span></Card>}
-          <div style={{display:"flex",gap:10,marginTop:14}}><Btn variant="ghost" onClick={()=>{setStep(2);setError("");}}>← Back</Btn><Btn onClick={()=>{if(!mobileVerified){setError("Please verify first");return;}setError("");setStep(4);}} disabled={!mobileVerified} style={{flex:1,justifyContent:"center"}}>Continue →</Btn></div>
-        </>}
-
-        {step === 4 && <>
-          <Card style={{background:C.greenBg,border:`1px solid ${C.green}`,marginBottom:16,padding:"12px 16px",textAlign:"center"}}><span style={{fontSize:13,color:C.green,fontWeight:600}}>✓ Verified · {form.first} · {form.course} · Class {form.studentClass}</span></Card>
           <Field label="Create Password *" value={form.pass} onChange={v=>setForm({...form,pass:v})} type="password" placeholder="Min 6 characters" />
           <Field label="Confirm Password *" value={form.confirm} onChange={v=>setForm({...form,confirm:v})} type="password" />
-          <div style={{display:"flex",gap:10}}><Btn variant="ghost" onClick={()=>setStep(3)}>← Back</Btn><Btn onClick={()=>{if(form.pass.length<6){setError("Min 6 characters");return;}if(form.pass!==form.confirm){setError("Passwords don't match");return;}onDone();}} variant="success" style={{flex:1,justifyContent:"center"}}>🎉 Complete Registration</Btn></div>
+          <div style={{display:"flex",gap:10}}><Btn variant="ghost" onClick={()=>setStep(2)}>← Back</Btn><Btn onClick={async ()=>{
+            if(form.pass.length<6){setError("Min 6 characters");return;}
+            if(form.pass!==form.confirm){setError("Passwords don't match");return;}
+            setError("Creating account…");
+            let createdAuthUser = null;
+            try {
+              const authEmail = form.email.trim() || `91${form.mobile}@grapp.in`;
+              const { user } = await db.auth.signUp(authEmail, form.pass);
+              createdAuthUser = user;
+              const newStudent = await db.students.createWithAuthId(user.id, {
+                name: `${form.first} ${form.last}`.trim(),
+                email: form.email.trim(),
+                mobile: form.mobile,
+                stream: form.stream,
+                course: form.course,
+                courses: [form.course],
+                class: form.studentClass,
+                plan: 'free',
+                status: 'pending',
+              });
+              setError("");
+              onDone(newStudent);
+            } catch(e) {
+              if (createdAuthUser) await db.auth.signOut().catch(()=>{});
+              setError(e.message || "Registration failed. Please try again.");
+            }
+          }} variant="success" style={{flex:1,justifyContent:"center"}}>🎉 Complete Registration</Btn></div>
+        </>}
+      </Card>
+    </div>
+  );
+}
+
+// ═══ SET PASSWORD (password recovery flow) ═══
+function SetPasswordForm({ onDone }) {
+  const [pass, setPass] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [error, setError] = useState("");
+  const [done, setDone] = useState(false);
+  return (
+    <div style={{ minHeight:"100vh", background:`linear-gradient(135deg,${C.blue50},#f0f2f5,${C.blue50})`, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
+      <Card style={{ width:"100%", maxWidth:420, padding:"40px 36px", boxShadow:"0 8px 40px rgba(0,0,0,0.08)" }}>
+        <div style={{ textAlign:"center", marginBottom:28 }}>
+          <div style={{ width:56, height:56, borderRadius:14, background:"linear-gradient(135deg,#0E1B2E,#1E3A5F)", display:"inline-flex", alignItems:"center", justifyContent:"center", color:"#fff", fontWeight:800, fontSize:20, marginBottom:14 }}>GR</div>
+          <h1 style={{ fontSize:24, fontWeight:800, color:C.gray900, margin:0 }}>Set New Password</h1>
+          <p style={{ color:C.gray500, fontSize:14, marginTop:6 }}>Create a new password for your account</p>
+        </div>
+        {error && <div style={{ background:C.redBg, color:C.red, padding:"8px 14px", borderRadius:8, fontSize:13, marginBottom:14 }}>{error}</div>}
+        {done ? (
+          <div style={{ textAlign:"center" }}>
+            <div style={{ background:C.greenBg, color:C.green, padding:"12px 16px", borderRadius:8, fontSize:14, fontWeight:600, marginBottom:20 }}>✅ Password updated successfully!</div>
+            <Btn onClick={onDone} style={{ width:"100%", justifyContent:"center" }}>Go to Sign In</Btn>
+          </div>
+        ) : <>
+          <Field label="New Password *" value={pass} onChange={setPass} type="password" placeholder="Min 6 characters" />
+          <Field label="Confirm Password *" value={confirm} onChange={setConfirm} type="password" />
+          <Btn onClick={async () => {
+            if (pass.length < 6) { setError("Min 6 characters"); return; }
+            if (pass !== confirm) { setError("Passwords don't match"); return; }
+            setError("");
+            try { await db.auth.updatePassword(pass); setDone(true); }
+            catch(e) { setError(e.message || "Failed to update password"); }
+          }} variant="success" style={{ width:"100%", justifyContent:"center" }}>Update Password</Btn>
         </>}
       </Card>
     </div>
@@ -321,7 +374,7 @@ function EditProfile({ onSave }) {
 }
 
 // ═══ DASHBOARD ═══
-function Dashboard({ onLaunchTest, pastTests=[], onViewResult, onPragati, studentPlan, setStudentPlan, onEditProfile }) {
+function Dashboard({ onLaunchTest, pastTests=[], onViewResult, onPragati, studentPlan, setStudentPlan, onEditProfile, student:studentProp, setAutoSendToast }) {
   const [tab, setTab] = useState("available");
   const [showPlans, setShowPlans] = useState(false);
   const [paymentProcessing, setPaymentProcessing] = useState(false);
@@ -344,17 +397,26 @@ function Dashboard({ onLaunchTest, pastTests=[], onViewResult, onPragati, studen
     setPaymentModal(plan);
   };
 
-  const submitPaymentRequest = (plan, method) => {
-    // Save transaction for admin approval
-    const txn = { id:"TXN"+Date.now(), studentName:student.name, studentMobile:student.mobile||"", planId:plan.id, planName:plan.name, amount:plan.price, method, date:new Date().toISOString(), status:"pending", courses:(student.courses||[student.course]).join(", ") };
-    const existing = JSON.parse(localStorage.getItem("gr_transactions")||"[]");
-    localStorage.setItem("gr_transactions", JSON.stringify([txn, ...existing]));
-    
+  const submitPaymentRequest = async (plan, method) => {
     setPaymentModal(null);
-    setAutoSendToast(`⏳ Payment request submitted! Admin will verify and activate your ${plan.name} plan.`);
-    setTimeout(()=>setAutoSendToast(""),5000);
+    if (student?.id) {
+      try {
+        await db.transactions.create({
+          studentId: student.id,
+          planId: plan.id,
+          planName: plan.name,
+          amount: plan.price,
+          method,
+          courses: student.courses || (student.course ? [student.course] : []),
+        });
+      } catch(e) { console.error('Failed to submit payment:', e); }
+    }
+    if (setAutoSendToast) {
+      setAutoSendToast(`⏳ Payment request submitted! Admin will verify and activate your ${plan.name} plan.`);
+      setTimeout(() => setAutoSendToast(""), 5000);
+    }
   };
-  const student = { name:"Rahul Sharma", class:"12", course:"CET PCM", plan:studentPlan||"free" };
+  const student = { ...(studentProp || {}), name: studentProp?.name||"Student", class: studentProp?.class||"12", course: studentProp?.course||"", plan: studentPlan || studentProp?.plan || "free" };
 
   const allTests = [
     {id:"t1",course:"CET-PCM",name:"Mock Test 1 — Full Syllabus",qs:15,dur:"30 min",status:"active",date:"10 Feb 2026",free:true,classes:["11","12"],category:"free"},
@@ -400,7 +462,7 @@ function Dashboard({ onLaunchTest, pastTests=[], onViewResult, onPragati, studen
   );};
 
   return (
-    <div style={{minHeight:"100vh",background:C.bg}}><NavBar />
+    <div style={{minHeight:"100vh",background:C.bg}}><NavBar student={student} />
       <div style={{maxWidth:880,margin:"0 auto",padding:"28px 20px"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
           <div><h1 style={{fontSize:22,fontWeight:800,color:C.gray900,marginBottom:4}}>Student Dashboard</h1>
@@ -482,7 +544,7 @@ function Dashboard({ onLaunchTest, pastTests=[], onViewResult, onPragati, studen
               {plan.current?<div style={{textAlign:"center",padding:"10px",borderRadius:8,background:C.greenBg,color:C.green,fontWeight:700,fontSize:13}}>✓ Current Plan</div>:plan.price>0&&<Btn onClick={()=>handleBuyPlan(plan)} disabled={paymentProcessing} style={{width:"100%",justifyContent:"center",background:plan.color,color:"#fff",padding:"10px",borderRadius:8}}>{paymentProcessing?"Processing...":`Buy ${plan.name} — ₹${plan.price}`}</Btn>}
             </div>))}
           </div>
-          <div style={{textAlign:"center",marginTop:20,fontSize:12,color:C.gray400}}>💳 {PAYMENT_MODE==="razorpay"?"Secure payment via Razorpay":"Pay via UPI / QR Code"} · Instant activation</div>
+          <div style={{textAlign:"center",marginTop:20,fontSize:12,color:C.gray400}}>💳 Pay via UPI / QR Code · Instant activation</div>
         </div>
       </div>}
 
@@ -798,11 +860,25 @@ const SUBJECT_META = {
   math:{icon:"📐",color:"#2563eb",bg:"#eff6ff",label:"गणित · Mathematics"},
 };
 
-const INITIAL_PRAGATI = {};
-Object.entries(PRAGATI_SUBJECTS).forEach(([subId,topics])=>{INITIAL_PRAGATI[subId]={};topics.forEach(t=>{INITIAL_PRAGATI[subId][t.id]={arambh:null,shikhar:null,arambhAttempts:[],shikharAttempts:[]};});});
-// Demo data
-INITIAL_PRAGATI.physics.kin = {arambh:88,shikhar:72,arambhAttempts:[{score:88,date:"2026-02-01"},{score:75,date:"2026-01-25"}],shikharAttempts:[{score:72,date:"2026-02-05"}]};
-INITIAL_PRAGATI.chemistry.crx = {arambh:65,shikhar:null,arambhAttempts:[{score:65,date:"2026-02-03"}],shikharAttempts:[]};
+const BLANK_PRAGATI = {};
+Object.entries(PRAGATI_SUBJECTS).forEach(([subId,topics])=>{BLANK_PRAGATI[subId]={};topics.forEach(t=>{BLANK_PRAGATI[subId][t.id]={arambh:null,shikhar:null,arambhAttempts:[],shikharAttempts:[]};});});
+
+function buildPragatiProgress(attempts) {
+  const p = {};
+  Object.entries(PRAGATI_SUBJECTS).forEach(([subId,topics])=>{p[subId]={};topics.forEach(t=>{p[subId][t.id]={arambh:null,shikhar:null,arambhAttempts:[],shikharAttempts:[]};});});
+  for (const a of attempts) {
+    if (!p[a.subject_key]?.[a.topic_id]) continue;
+    const entry = {score:a.score, date:new Date(a.created_at).toLocaleDateString('en-IN')};
+    if (a.level.includes('arambh')) {
+      p[a.subject_key][a.topic_id].arambhAttempts.push(entry);
+      if (!p[a.subject_key][a.topic_id].arambh || a.score > p[a.subject_key][a.topic_id].arambh) p[a.subject_key][a.topic_id].arambh = a.score;
+    } else {
+      p[a.subject_key][a.topic_id].shikharAttempts.push(entry);
+      if (!p[a.subject_key][a.topic_id].shikhar || a.score > p[a.subject_key][a.topic_id].shikhar) p[a.subject_key][a.topic_id].shikhar = a.score;
+    }
+  }
+  return p;
+}
 
 const getTopicStatus = (attempt) => {
   if (!attempt||(!attempt.arambh&&!attempt.shikhar)) return {key:"pending",label:"Pending",color:C.gray400,bg:C.gray100};
@@ -873,7 +949,7 @@ function PragatiScreen({onBack, onLaunchExam, progress, setProgress, onViewStore
           <Card key={t.id} style={{padding:"16px 20px",borderLeft:"4px solid #d1d5db",opacity:0.7}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div><div style={{display:"flex",alignItems:"center",gap:8}}><h4 style={{fontSize:15,fontWeight:700,color:C.gray500,margin:0}}>🔒 {t.name}</h4><span style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:10,background:"#FEF3C7",color:"#D97706"}}>👑 PREMIUM</span></div><p style={{fontSize:12,color:C.gray400,marginTop:4}}>Upgrade to access</p></div>
               <div style={{display:"flex",gap:6,flexShrink:0}}>
-                <Btn onClick={()=>alert("Per-topic: ₹49 for "+t.name)} style={{fontSize:10,padding:"5px 10px",background:"#7c3aed",color:"#fff",borderRadius:8}}>📝 ₹49 Topic</Btn>
+                <Btn onClick={onUpgrade} style={{fontSize:10,padding:"5px 10px",background:"#7c3aed",color:"#fff",borderRadius:8}}>📝 ₹49 Topic</Btn>
                 <Btn onClick={onUpgrade} style={{fontSize:10,padding:"5px 10px",background:"#0e7490",color:"#fff",borderRadius:8}}>✨ ₹299 All Pragati</Btn>
                 <Btn onClick={onUpgrade} style={{fontSize:10,padding:"5px 10px",background:"#D97706",color:"#fff",borderRadius:8}}>👑 ₹499 Premium</Btn>
               </div></div>
@@ -1069,21 +1145,57 @@ function PragatiScreen({onBack, onLaunchExam, progress, setProgress, onViewStore
 
 // ═══ MAIN APP ═══
 export default function StudentApp() {
-  const [screen, setScreen] = useState("signin");
+  const [screen, setScreen] = useState("loading");
+  const [student, setStudent] = useState(null);
   const [autoSendToast, setAutoSendToast] = useState("");
   const [currentTest, setCurrentTest] = useState(null);
   const [result, setResult] = useState(null);
-  const [pastTests, setPastTests] = useState(()=>{
-    try { return JSON.parse(localStorage.getItem("gr_past_tests")||"[]"); } catch { return []; }
-  });
-  const savePastTests = (tests) => { setPastTests(tests); try { localStorage.setItem("gr_past_tests", JSON.stringify(tests.map(t=>({testName:t.testName,correct:t.correct,wrong:t.wrong,unanswered:t.unanswered,total:t.total,date:t.date,time:t.time,elapsed:t.elapsed,course:t.course,pragatiInfo:t.pragatiInfo})))); } catch{} };
+  const [pastTests, setPastTests] = useState([]);
   const [isNewSubmission, setIsNewSubmission] = useState(false);
   const [studentPlan, setStudentPlan] = useState("free");
-  const [pragatiProgress, setPragatiProgress] = useState(INITIAL_PRAGATI);
+  const [pragatiProgress, setPragatiProgress] = useState(BLANK_PRAGATI);
   const [pragatiExam, setPragatiExam] = useState(null);
   const [pragatiQuestions, setPragatiQuestions] = useState(null);
   const [pragatiConfig, setPragatiConfig] = useState(null);
   const [autoSendMsg, setAutoSendMsg] = useState("");
+
+  async function loadHistory(s) {
+    if (!s?.id) return;
+    const [attempts, pAttempts] = await Promise.all([
+      db.testAttempts.getByStudentId(s.id),
+      db.pragatiAttempts.getByStudentId(s.id),
+    ]);
+    setPastTests(attempts.map(a => ({...a, date:new Date(a.date).toLocaleDateString('en-IN'), time:new Date(a.date).toLocaleTimeString('en-IN')})));
+    if (pAttempts.length > 0) setPragatiProgress(buildPragatiProgress(pAttempts));
+  }
+
+  useEffect(() => {
+    const recoveryMode = { current: false };
+    const { data: { subscription } } = db.auth.onAuthEvent((event) => {
+      if (event === 'PASSWORD_RECOVERY') { recoveryMode.current = true; setScreen("set-password"); }
+    });
+    db.auth.getSession().then(async session => {
+      if (recoveryMode.current) return;
+      if (session) {
+        const s = await db.students.getByAuthId(session.user.id);
+        if (!s) { await db.auth.signOut().catch(()=>{}); setScreen("signin"); return; }
+        setStudent(s);
+        if (s?.plan) setStudentPlan(s.plan);
+        await loadHistory(s).catch(console.error);
+        setScreen("dashboard");
+      } else {
+        setScreen("signin");
+      }
+    }).catch(() => setScreen("signin"));
+    return () => subscription?.unsubscribe();
+  }, []);
+
+  const handleSignIn = async (s) => {
+    setStudent(s);
+    if (s?.plan) setStudentPlan(s.plan);
+    await loadHistory(s).catch(console.error);
+    setScreen("dashboard");
+  };
 
   const handleSubmit = (r) => {
     const resultWithInfo = pragatiExam ? {...r, pragatiInfo:{topicName:pragatiExam.topicName, level:pragatiExam.level}} : r;
@@ -1099,8 +1211,11 @@ export default function StudentApp() {
         if(level.includes("arambh")){topic.arambh=Math.max(topic.arambh||0,score);topic.arambhAttempts=[...(topic.arambhAttempts||[]),{score,date:new Date().toLocaleDateString("en-IN")}];}
         else{topic.shikhar=Math.max(topic.shikhar||0,score);topic.shikharAttempts=[...(topic.shikharAttempts||[]),{score,date:new Date().toLocaleDateString("en-IN")}];}
         sub[topicId]=topic;return{...prev,[subjectKey]:sub};});
+      if (student?.id) db.pragatiAttempts.save({studentId:student.id,subjectKey,topicId,level,score}).catch(console.error);
     }
-    savePastTests([...pastTests,{...resultWithInfo,testName:currentTest?.name||pragatiExam?.topicName||"Test"}]);
+    const testName = currentTest?.name||pragatiExam?.topicName||"Test";
+    setPastTests(prev=>[...prev,{...resultWithInfo,testName}]);
+    if (student?.id) db.testAttempts.save({studentId:student.id,testName,correct:r.correct,wrong:r.wrong,unanswered:r.unanswered,total:r.total,elapsed:r.elapsed,course:r.course||'CET-PCM',pragatiInfo:pragatiExam?{topicName:pragatiExam.topicName,level:pragatiExam.level}:null}).catch(console.error);
     setScreen("results");
   };
 
@@ -1111,9 +1226,17 @@ export default function StudentApp() {
 
   return (
     <div style={{fontFamily:"'General Sans',-apple-system,sans-serif"}}>
-      {screen === "signin" && <SignIn onSignIn={()=>setScreen("dashboard")} onRegister={()=>setScreen("register")} />}
-      {screen === "register" && <Registration onDone={()=>setScreen("editprofile")} />}
-      {screen === "editprofile" && <EditProfile onSave={(profileData)=>{
+      {screen === "loading" && <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:C.bg}}><div style={{fontSize:14,color:C.gray400}}>Loading…</div></div>}
+      {screen === "signin" && <SignIn onSignIn={handleSignIn} onRegister={()=>setScreen("register")} />}
+      {screen === "set-password" && <SetPasswordForm onDone={()=>{db.auth.signOut().then(()=>setScreen("signin")).catch(()=>setScreen("signin"));}} />}
+      {screen === "register" && <Registration onDone={(s)=>{setStudent(s);setScreen("editprofile");}} />}
+      {screen === "editprofile" && <EditProfile onSave={async (profileData)=>{
+        if (student?.id) {
+          try {
+            const updated = await db.students.update(student.id, { ...student, ...profileData, courses: profileData.courses || student.courses || [] });
+            setStudent(updated);
+          } catch(e) { console.error('Failed to update profile:', e); }
+        }
         // Auto-send WhatsApp welcome message
         const studentName = student?.name || "Student";
         const coursesText = (profileData?.courses||[]).join(", ") || "Not selected";
@@ -1137,7 +1260,7 @@ export default function StudentApp() {
           <span style={{fontSize:20}}>📱</span>{autoSendToast}
         </div>
       )}
-      {screen === "dashboard" && <Dashboard onLaunchTest={t=>{setPragatiExam(null);setPragatiQuestions(null);setPragatiConfig(null);setCurrentTest(t);setScreen("instructions");}} pastTests={pastTests} onViewResult={handleViewResult} onPragati={()=>setScreen("pragati")} studentPlan={studentPlan} setStudentPlan={setStudentPlan} onEditProfile={()=>setScreen("editprofile")} />}
+      {screen === "dashboard" && <Dashboard onLaunchTest={t=>{setPragatiExam(null);setPragatiQuestions(null);setPragatiConfig(null);setCurrentTest(t);setScreen("instructions");}} pastTests={pastTests} onViewResult={handleViewResult} onPragati={()=>setScreen("pragati")} studentPlan={studentPlan} setStudentPlan={setStudentPlan} onEditProfile={()=>setScreen("editprofile")} student={student} setAutoSendToast={setAutoSendToast} />}
       {screen === "instructions" && <div style={{minHeight:"100vh",background:C.bg,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
         <Card style={{maxWidth:600,padding:32,textAlign:"center"}}><h2 style={{fontSize:22,fontWeight:800,marginBottom:12}}>{currentTest?.name}</h2><p style={{color:C.gray500,marginBottom:8}}>{currentTest?.qs||15} Questions · {currentTest?.dur||"30 min"}</p>
           <div style={{background:C.gray50,borderRadius:10,padding:16,marginBottom:20,textAlign:"left"}}><h4 style={{fontWeight:700,marginBottom:8}}>Instructions:</h4><ul style={{fontSize:13,color:C.gray600,lineHeight:2,paddingLeft:20}}><li>Answer all questions within the time limit</li><li>Click on an option to select your answer</li><li>You can mark questions for review</li><li>Use the palette to navigate between questions</li></ul></div>
