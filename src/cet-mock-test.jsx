@@ -191,14 +191,14 @@ function SignIn({ onSignIn, onRegister }) {
 function Registration({ onDone }) {
   const [form, setForm] = useState({ first:"", last:"", mobile:"", email:"", stream:"", course:"", pass:"", confirm:"" });
   const [step, setStep] = useState(1);
-<<<<<<< HEAD
   const [mobileVerified, setMobileVerified] = useState(false);
   const [otpSent, setOtpSent] = useState(false);
   const [otpTimer, setOtpTimer] = useState(0);
   const [otpCode, setOtpCode] = useState("");
-=======
->>>>>>> 687750ebfe1b44a114df80b389b0f057fb63f5dc
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => { if (otpTimer > 0) { const t = setTimeout(() => setOtpTimer(otpTimer-1), 1000); return () => clearTimeout(t); } }, [otpTimer]);
 
   const STREAM_COURSES = {
     "Engineering":{icon:"⚙️",courses:["MHT CET PCM","JEE Main","JEE Advanced"]},
@@ -212,34 +212,34 @@ function Registration({ onDone }) {
     "Design":{icon:"🎨",courses:["NID","NIFT","UCEED"]},
   };
 
-  const completeRegistration = () => {
+  const completeRegistration = async () => {
     if (form.pass.length < 6) { setError("Min 6 characters"); return; }
     if (form.pass !== form.confirm) { setError("Passwords don't match"); return; }
+    setSubmitting(true);
+    setError("Creating account…");
+    let createdAuthUser = null;
     try {
-      const existing = JSON.parse(localStorage.getItem("gr_students") || "[]");
-      if (existing.some(s => s.mobile === form.mobile)) {
-        setError("Mobile already registered. Please sign in.");
-        return;
-      }
-      const account = {
-        id: "S" + Date.now(),
-        first: form.first.trim(),
-        last: form.last.trim(),
+      const authEmail = form.email.trim() || `91${form.mobile}@grapp.in`;
+      const { user } = await db.auth.signUp(authEmail, form.pass);
+      createdAuthUser = user;
+      const newStudent = await db.students.createWithAuthId(user.id, {
         name: `${form.first.trim()} ${form.last.trim()}`.trim(),
-        mobile: form.mobile,
         email: form.email.trim(),
+        mobile: form.mobile,
         stream: form.stream,
         course: form.course,
-        pass: form.pass,
-        joinDate: new Date().toISOString(),
-        status: "active",
-        plan: "free",
-      };
-      localStorage.setItem("gr_students", JSON.stringify([account, ...existing]));
-      localStorage.setItem("gr_current_student", JSON.stringify(account));
-    } catch (e) { /* localStorage unavailable — proceed anyway */ }
-    setError("");
-    onDone();
+        courses: [form.course],
+        plan: 'free',
+        status: 'pending',
+      });
+      setError("");
+      setSubmitting(false);
+      onDone(newStudent);
+    } catch (e) {
+      if (createdAuthUser) await db.auth.signOut().catch(()=>{});
+      setSubmitting(false);
+      setError(e.message || "Registration failed. Please try again.");
+    }
   };
 
   return (
@@ -251,11 +251,7 @@ function Registration({ onDone }) {
           <p style={{ color:C.gray500, fontSize:13, marginTop:6 }}>Quick 2-step signup</p>
         </div>
         <div style={{ display:"flex", gap:4, marginBottom:24 }}>
-<<<<<<< HEAD
           {["Your Details","Verify & Password"].map((s,i) => (
-=======
-          {["Personal Info","Stream & Exam","Password"].map((s,i) => (
->>>>>>> 687750ebfe1b44a114df80b389b0f057fb63f5dc
             <div key={i} style={{ flex:1, textAlign:"center" }}>
               <div style={{ height:4, borderRadius:2, background:i<step?C.green:i===step-1?C.primary:C.gray200, marginBottom:6 }} />
               <span style={{ fontSize:10, color:i<step?C.green:C.gray500, fontWeight:600 }}>{s}</span>
@@ -266,19 +262,8 @@ function Registration({ onDone }) {
 
         {step === 1 && <>
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}><Field label="First Name *" value={form.first} onChange={v=>setForm({...form,first:v})} /><Field label="Last Name" value={form.last} onChange={v=>setForm({...form,last:v})} /></div>
-          <Field label="Mobile *" value={form.mobile} onChange={v=>setForm({...form,mobile:v.replace(/\D/g,"").slice(0,10)})} type="tel" placeholder="10-digit mobile" />
-<<<<<<< HEAD
-          <Field label="Email (optional)" value={form.email} onChange={v=>setForm({...form,email:v})} type="email" />
-          <label style={{fontSize:13,fontWeight:600,color:C.gray700,display:"block",marginBottom:6,marginTop:6}}>Select Stream *</label>
-=======
           <Field label="Email" value={form.email} onChange={v=>setForm({...form,email:v})} type="email" placeholder="Optional — needed for email login" />
-          <Btn onClick={()=>{if(!form.first.trim()){setError("First name required");return;}if(form.mobile.length!==10){setError("Enter valid mobile");return;}setError("");setStep(2);}} style={{width:"100%",justifyContent:"center"}}>Continue →</Btn>
-          <p style={{textAlign:"center",marginTop:16,fontSize:13,color:C.gray500}}>Already registered? <span onClick={onDone} style={{color:C.primary,cursor:"pointer",fontWeight:600}}>Sign In</span></p>
-        </>}
-
-        {step === 2 && <>
-          <label style={{fontSize:13,fontWeight:600,color:C.gray700,display:"block",marginBottom:6}}>1. Select Stream *</label>
->>>>>>> 687750ebfe1b44a114df80b389b0f057fb63f5dc
+          <label style={{fontSize:13,fontWeight:600,color:C.gray700,display:"block",marginBottom:6,marginTop:6}}>Select Stream *</label>
           <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6,marginBottom:14}}>
             {Object.entries(STREAM_COURSES).map(([stream,data])=>(
               <button key={stream} onClick={()=>setForm({...form,stream,course:""})} style={{padding:"10px 8px",borderRadius:10,border:`2px solid ${form.stream===stream?C.primary:C.gray200}`,background:form.stream===stream?C.blue50:"#fff",cursor:"pointer",textAlign:"center"}}>
@@ -305,19 +290,12 @@ function Registration({ onDone }) {
           <p style={{textAlign:"center",marginTop:16,fontSize:13,color:C.gray500}}>Already registered? <span onClick={onDone} style={{color:C.primary,cursor:"pointer",fontWeight:600}}>Sign In</span></p>
         </>}
 
-<<<<<<< HEAD
         {step === 2 && <>
           <Card style={{background:C.gray50,marginBottom:16,padding:"12px 16px"}}><div style={{fontSize:13,color:C.gray600,lineHeight:1.9}}>
             <div style={{display:"flex",justifyContent:"space-between"}}><span>Name:</span><strong>{form.first} {form.last}</strong></div>
             <div style={{display:"flex",justifyContent:"space-between"}}><span>Mobile:</span><strong>+91 {form.mobile}</strong></div>
-=======
-        {step === 3 && <>
-          <Card style={{background:C.gray50,marginBottom:16,padding:"12px 16px"}}><div style={{fontSize:13,color:C.gray600,lineHeight:2}}>
-            <div style={{display:"flex",justifyContent:"space-between"}}><span>Name:</span><strong>{form.first} {form.last}</strong></div>
->>>>>>> 687750ebfe1b44a114df80b389b0f057fb63f5dc
             <div style={{display:"flex",justifyContent:"space-between"}}><span>Exam:</span><strong style={{color:C.primary}}>{form.course}</strong></div>
           </div></Card>
-<<<<<<< HEAD
           {!mobileVerified ? <Card style={{border:`1.5px solid ${C.gray200}`,padding:"14px 18px",marginBottom:14}}>
             <div style={{fontSize:14,fontWeight:700,marginBottom:4}}>📱 Verify Mobile</div>
             <div style={{fontSize:12,color:C.gray500,marginBottom:10}}>OTP will be sent to +91 {form.mobile}</div>
@@ -333,38 +311,8 @@ function Registration({ onDone }) {
           </>}
           <div style={{display:"flex",gap:10,marginTop:6}}>
             <Btn variant="ghost" onClick={()=>{setStep(1);setError("");}}>← Back</Btn>
-            <Btn onClick={completeRegistration} disabled={!mobileVerified} variant="success" style={{flex:1,justifyContent:"center"}}>🎉 Complete Registration</Btn>
+            <Btn onClick={completeRegistration} disabled={!mobileVerified || submitting} variant="success" style={{flex:1,justifyContent:"center"}}>{submitting ? "Creating…" : "🎉 Complete Registration"}</Btn>
           </div>
-=======
-          <Field label="Create Password *" value={form.pass} onChange={v=>setForm({...form,pass:v})} type="password" placeholder="Min 6 characters" />
-          <Field label="Confirm Password *" value={form.confirm} onChange={v=>setForm({...form,confirm:v})} type="password" />
-          <div style={{display:"flex",gap:10}}><Btn variant="ghost" onClick={()=>setStep(2)}>← Back</Btn><Btn onClick={async ()=>{
-            if(form.pass.length<6){setError("Min 6 characters");return;}
-            if(form.pass!==form.confirm){setError("Passwords don't match");return;}
-            setError("Creating account…");
-            let createdAuthUser = null;
-            try {
-              const authEmail = form.email.trim() || `91${form.mobile}@grapp.in`;
-              const { user } = await db.auth.signUp(authEmail, form.pass);
-              createdAuthUser = user;
-              const newStudent = await db.students.createWithAuthId(user.id, {
-                name: `${form.first} ${form.last}`.trim(),
-                email: form.email.trim(),
-                mobile: form.mobile,
-                stream: form.stream,
-                course: form.course,
-                courses: [form.course],
-                class: form.studentClass,
-                plan: 'free',
-                status: 'pending',
-              });
-              setError("");
-              onDone(newStudent);
-            } catch(e) {
-              if (createdAuthUser) await db.auth.signOut().catch(()=>{});
-              setError(e.message || "Registration failed. Please try again.");
-            }
-          }} variant="success" style={{flex:1,justifyContent:"center"}}>🎉 Complete Registration</Btn></div>
         </>}
       </Card>
     </div>
@@ -401,7 +349,6 @@ function SetPasswordForm({ onDone }) {
             try { await db.auth.updatePassword(pass); setDone(true); }
             catch(e) { setError(e.message || "Failed to update password"); }
           }} variant="success" style={{ width:"100%", justifyContent:"center" }}>Update Password</Btn>
->>>>>>> 687750ebfe1b44a114df80b389b0f057fb63f5dc
         </>}
       </Card>
     </div>
@@ -1300,24 +1247,6 @@ export default function StudentApp() {
 
   return (
     <div style={{fontFamily:"'General Sans',-apple-system,sans-serif"}}>
-<<<<<<< HEAD
-      {screen === "signin" && <SignIn onSignIn={()=>setScreen("dashboard")} onRegister={()=>setScreen("register")} />}
-      {screen === "register" && <Registration onDone={()=>setScreen("editprofile")} />}
-      {screen === "editprofile" && <EditProfile onSave={(profileData)=>{
-        let current = {};
-        try { current = JSON.parse(localStorage.getItem("gr_current_student") || "{}") || {}; } catch {}
-        const merged = { ...current, ...(profileData || {}) };
-        try {
-          localStorage.setItem("gr_current_student", JSON.stringify(merged));
-          const list = JSON.parse(localStorage.getItem("gr_students") || "[]");
-          const updated = list.map(s => s.mobile === merged.mobile ? merged : s);
-          localStorage.setItem("gr_students", JSON.stringify(updated));
-        } catch {}
-
-        const studentName = merged.name || merged.first || "Student";
-        const studentMobile = merged.mobile || "";
-        const coursesText = (profileData?.courses || []).join(", ") || merged.course || "Not selected";
-=======
       {screen === "loading" && <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:C.bg}}><div style={{fontSize:14,color:C.gray400}}>Loading…</div></div>}
       {screen === "signin" && <SignIn onSignIn={handleSignIn} onRegister={()=>setScreen("register")} />}
       {screen === "set-password" && <SetPasswordForm onDone={()=>{db.auth.signOut().then(()=>setScreen("signin")).catch(()=>setScreen("signin"));}} />}
@@ -1329,10 +1258,9 @@ export default function StudentApp() {
             setStudent(updated);
           } catch(e) { console.error('Failed to update profile:', e); }
         }
-        // Auto-send WhatsApp welcome message
         const studentName = student?.name || "Student";
-        const coursesText = (profileData?.courses||[]).join(", ") || "Not selected";
->>>>>>> 687750ebfe1b44a114df80b389b0f057fb63f5dc
+        const studentMobile = student?.mobile || "";
+        const coursesText = (profileData?.courses||[]).join(", ") || student?.course || "Not selected";
         const classText = profileData?.studentClass || "";
         const msg = `🎓 Welcome to GR Educational Consultancy!\n\nHi ${studentName},\nYour registration is complete! ✅\n\n📚 Class: ${classText}\n📋 Courses: ${coursesText}\n\n✨ You can now:\n• Take free mock tests\n• Access Pragati monitoring\n• Track your performance\n\nStart your journey: ${window.location.origin}\n\nAll the best! 🚀\n— GR Educational Team`;
 
