@@ -172,13 +172,12 @@ function SignIn({ onSignIn, onRegister }) {
 
 // ═══ REGISTRATION ═══
 function Registration({ onDone }) {
-  const [form, setForm] = useState({ first:"", last:"", mobile:"", email:"", stream:"", course:"", studentClass:"", pass:"", confirm:"" });
+  const [form, setForm] = useState({ first:"", last:"", mobile:"", email:"", stream:"", course:"", pass:"", confirm:"" });
   const [step, setStep] = useState(1);
   const [mobileVerified, setMobileVerified] = useState(false);
   const [otpSent, setOtpSent] = useState(false);
   const [otpTimer, setOtpTimer] = useState(0);
   const [otpCode, setOtpCode] = useState("");
-  const [verifyMethod, setVerifyMethod] = useState(null);
   const [error, setError] = useState("");
 
   useEffect(() => { if (otpTimer > 0) { const t = setTimeout(() => setOtpTimer(otpTimer-1), 1000); return () => clearTimeout(t); } }, [otpTimer]);
@@ -194,7 +193,36 @@ function Registration({ onDone }) {
     "Education":{icon:"📚",courses:["B.Ed CET","D.Ed CET"]},
     "Design":{icon:"🎨",courses:["NID","NIFT","UCEED"]},
   };
-  const CLASS_OPTIONS = [{value:"11",label:"11th"},{value:"12",label:"12th"},{value:"repeater",label:"Repeater"},{value:"dropper",label:"Dropper"},{value:"graduate",label:"Graduate"}];
+
+  const completeRegistration = () => {
+    if (form.pass.length < 6) { setError("Min 6 characters"); return; }
+    if (form.pass !== form.confirm) { setError("Passwords don't match"); return; }
+    try {
+      const existing = JSON.parse(localStorage.getItem("gr_students") || "[]");
+      if (existing.some(s => s.mobile === form.mobile)) {
+        setError("Mobile already registered. Please sign in.");
+        return;
+      }
+      const account = {
+        id: "S" + Date.now(),
+        first: form.first.trim(),
+        last: form.last.trim(),
+        name: `${form.first.trim()} ${form.last.trim()}`.trim(),
+        mobile: form.mobile,
+        email: form.email.trim(),
+        stream: form.stream,
+        course: form.course,
+        pass: form.pass,
+        joinDate: new Date().toISOString(),
+        status: "active",
+        plan: "free",
+      };
+      localStorage.setItem("gr_students", JSON.stringify([account, ...existing]));
+      localStorage.setItem("gr_current_student", JSON.stringify(account));
+    } catch (e) { /* localStorage unavailable — proceed anyway */ }
+    setError("");
+    onDone();
+  };
 
   return (
     <div style={{ minHeight:"100vh", background:C.bg, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
@@ -202,9 +230,10 @@ function Registration({ onDone }) {
         <div style={{ textAlign:"center", marginBottom:24 }}>
           <div style={{ width:48, height:48, borderRadius:12, background:"linear-gradient(135deg,#0E1B2E,#1E3A5F)", display:"inline-flex", alignItems:"center", justifyContent:"center", color:"#fff", fontWeight:800, fontSize:18, marginBottom:12 }}>GR</div>
           <h1 style={{ fontSize:22, fontWeight:800, color:C.gray900, margin:0 }}>New Registration</h1>
+          <p style={{ color:C.gray500, fontSize:13, marginTop:6 }}>Quick 2-step signup</p>
         </div>
         <div style={{ display:"flex", gap:4, marginBottom:24 }}>
-          {["Personal Info","Stream & Exam","Verify","Password"].map((s,i) => (
+          {["Your Details","Verify & Password"].map((s,i) => (
             <div key={i} style={{ flex:1, textAlign:"center" }}>
               <div style={{ height:4, borderRadius:2, background:i<step?C.green:i===step-1?C.primary:C.gray200, marginBottom:6 }} />
               <span style={{ fontSize:10, color:i<step?C.green:C.gray500, fontWeight:600 }}>{s}</span>
@@ -217,12 +246,7 @@ function Registration({ onDone }) {
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}><Field label="First Name *" value={form.first} onChange={v=>setForm({...form,first:v})} /><Field label="Last Name" value={form.last} onChange={v=>setForm({...form,last:v})} /></div>
           <Field label="Mobile *" value={form.mobile} onChange={v=>setForm({...form,mobile:v.replace(/\D/g,"").slice(0,10)})} type="tel" placeholder="10-digit mobile" />
           <Field label="Email (optional)" value={form.email} onChange={v=>setForm({...form,email:v})} type="email" />
-          <Btn onClick={()=>{if(!form.first.trim()){setError("First name required");return;}if(form.mobile.length!==10){setError("Enter valid mobile");return;}setError("");setStep(2);}} style={{width:"100%",justifyContent:"center"}}>Continue →</Btn>
-          <p style={{textAlign:"center",marginTop:16,fontSize:13,color:C.gray500}}>Already registered? <span onClick={onDone} style={{color:C.primary,cursor:"pointer",fontWeight:600}}>Sign In</span></p>
-        </>}
-
-        {step === 2 && <>
-          <label style={{fontSize:13,fontWeight:600,color:C.gray700,display:"block",marginBottom:6}}>1. Select Stream *</label>
+          <label style={{fontSize:13,fontWeight:600,color:C.gray700,display:"block",marginBottom:6,marginTop:6}}>Select Stream *</label>
           <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6,marginBottom:14}}>
             {Object.entries(STREAM_COURSES).map(([stream,data])=>(
               <button key={stream} onClick={()=>setForm({...form,stream,course:""})} style={{padding:"10px 8px",borderRadius:10,border:`2px solid ${form.stream===stream?C.primary:C.gray200}`,background:form.stream===stream?C.blue50:"#fff",cursor:"pointer",textAlign:"center"}}>
@@ -231,7 +255,7 @@ function Registration({ onDone }) {
               </button>
             ))}
           </div>
-          {form.stream && <><label style={{fontSize:13,fontWeight:600,color:C.gray700,display:"block",marginBottom:6}}>2. Select Entrance Exam *</label>
+          {form.stream && <><label style={{fontSize:13,fontWeight:600,color:C.gray700,display:"block",marginBottom:6}}>Select Entrance Exam *</label>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:14}}>
               {(STREAM_COURSES[form.stream]?.courses||[]).map(course=>(
                 <button key={course} onClick={()=>setForm({...form,course})} style={{padding:"10px 14px",borderRadius:10,border:`2px solid ${form.course===course?C.primary:C.gray200}`,background:form.course===course?C.blue50:"#fff",cursor:"pointer",textAlign:"left"}}>
@@ -239,42 +263,39 @@ function Registration({ onDone }) {
                 </button>
               ))}
             </div></>}
-          {form.course && <><label style={{fontSize:13,fontWeight:600,color:C.gray700,display:"block",marginBottom:6}}>3. Select Class *</label>
-            <div style={{display:"flex",gap:6,marginBottom:14}}>
-              {CLASS_OPTIONS.map(c=>(<button key={c.value} onClick={()=>setForm({...form,studentClass:c.value})} style={{padding:"8px 16px",borderRadius:8,border:`2px solid ${form.studentClass===c.value?C.primary:C.gray200}`,background:form.studentClass===c.value?C.blue50:"#fff",cursor:"pointer",fontSize:13,fontWeight:form.studentClass===c.value?700:500,color:form.studentClass===c.value?C.primary:C.gray600}}>{c.label}</button>))}
-            </div></>}
-          {form.stream&&form.course&&form.studentClass&&<div style={{background:C.greenBg,borderRadius:8,padding:"8px 14px",marginBottom:12,fontSize:12,color:C.green,fontWeight:600}}>✓ {form.stream} → {form.course} → Class {form.studentClass}</div>}
-          <div style={{display:"flex",gap:10}}><Btn variant="ghost" onClick={()=>{setStep(1);setError("");}}>← Back</Btn><Btn onClick={()=>{if(!form.stream){setError("Select stream");return;}if(!form.course){setError("Select exam");return;}if(!form.studentClass){setError("Select class");return;}setError("");setStep(3);}} style={{flex:1,justifyContent:"center"}}>Continue →</Btn></div>
+          <Btn onClick={()=>{
+            if(!form.first.trim()){setError("First name required");return;}
+            if(form.mobile.length!==10){setError("Enter valid 10-digit mobile");return;}
+            if(!form.stream){setError("Select stream");return;}
+            if(!form.course){setError("Select exam");return;}
+            setError("");setStep(2);
+          }} style={{width:"100%",justifyContent:"center"}}>Continue →</Btn>
+          <p style={{textAlign:"center",marginTop:16,fontSize:13,color:C.gray500}}>Already registered? <span onClick={onDone} style={{color:C.primary,cursor:"pointer",fontWeight:600}}>Sign In</span></p>
         </>}
 
-        {step === 3 && <>
-          <Card style={{background:C.gray50,marginBottom:16,padding:"14px 18px"}}><div style={{fontSize:13,color:C.gray600,lineHeight:2}}>
+        {step === 2 && <>
+          <Card style={{background:C.gray50,marginBottom:16,padding:"12px 16px"}}><div style={{fontSize:13,color:C.gray600,lineHeight:1.9}}>
             <div style={{display:"flex",justifyContent:"space-between"}}><span>Name:</span><strong>{form.first} {form.last}</strong></div>
-            <div style={{display:"flex",justifyContent:"space-between"}}><span>Stream:</span><strong>{form.stream}</strong></div>
+            <div style={{display:"flex",justifyContent:"space-between"}}><span>Mobile:</span><strong>+91 {form.mobile}</strong></div>
             <div style={{display:"flex",justifyContent:"space-between"}}><span>Exam:</span><strong style={{color:C.primary}}>{form.course}</strong></div>
-            <div style={{display:"flex",justifyContent:"space-between"}}><span>Class:</span><strong>{CLASS_OPTIONS.find(c=>c.value===form.studentClass)?.label}</strong></div>
           </div></Card>
-          {!mobileVerified ? <>
-            {!verifyMethod && <><label style={{fontSize:13,fontWeight:600,color:C.gray700,display:"block",marginBottom:8}}>Verify your identity (choose one)</label>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:8}}>
-                <button onClick={()=>setVerifyMethod("mobile")} style={{padding:"16px",borderRadius:10,border:`2px solid ${C.gray200}`,background:"#fff",cursor:"pointer",textAlign:"center"}}><div style={{fontSize:28,marginBottom:6}}>📱</div><div style={{fontSize:14,fontWeight:700}}>Mobile OTP</div><div style={{fontSize:12,color:C.gray500}}>+91 {form.mobile}</div></button>
-                <button onClick={()=>{if(!form.email){setError("No email entered");return;}setVerifyMethod("email");}} style={{padding:"16px",borderRadius:10,border:`2px solid ${C.gray200}`,background:form.email?"#fff":C.gray50,cursor:form.email?"pointer":"not-allowed",textAlign:"center",opacity:form.email?1:0.5}}><div style={{fontSize:28,marginBottom:6}}>📧</div><div style={{fontSize:14,fontWeight:700}}>Email OTP</div><div style={{fontSize:12,color:C.gray500}}>{form.email||"No email"}</div></button>
-              </div></>}
-            {verifyMethod && <Card style={{border:`1.5px solid ${C.gray200}`,padding:"16px 18px"}}>
-              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}><span style={{fontSize:22}}>{verifyMethod==="mobile"?"📱":"📧"}</span><div style={{flex:1}}><div style={{fontSize:14,fontWeight:700}}>Verify via {verifyMethod==="mobile"?"Mobile":"Email"}</div><div style={{fontSize:13,color:C.gray500}}>OTP sent to {verifyMethod==="mobile"?`+91 ${form.mobile}`:form.email}</div></div><button onClick={()=>{setVerifyMethod(null);setOtpSent(false);setOtpCode("");}} style={{background:"none",border:"none",cursor:"pointer",fontSize:12,color:C.primary,fontWeight:600}}>Change</button></div>
-              {!otpSent?<Btn onClick={()=>{setOtpSent(true);setOtpTimer(30);}} style={{width:"100%",justifyContent:"center"}}>Send OTP</Btn>:<>
-                <div style={{background:"#f0fdf4",borderRadius:8,padding:"8px 12px",marginBottom:10,fontSize:13,color:C.green,display:"flex",justifyContent:"space-between"}}><span>✓ OTP sent</span>{otpTimer>0?<span style={{color:C.orange,fontWeight:600}}>{otpTimer}s</span>:<button onClick={()=>setOtpTimer(30)} style={{background:"none",border:"none",color:C.primary,fontWeight:600,cursor:"pointer",fontSize:13}}>Resend</button>}</div>
-                <Field label="Enter OTP" value={otpCode} onChange={v=>setOtpCode(v.replace(/\D/g,"").slice(0,6))} /><Btn onClick={()=>{if(otpCode.length<4){setError("Enter valid OTP");return;}setError("");setMobileVerified(true);}} variant="success" style={{width:"100%",justifyContent:"center"}}>Verify OTP</Btn></>}
-            </Card>}
-          </> : <Card style={{background:C.greenBg,border:`1px solid ${C.green}`,padding:"14px 18px",textAlign:"center"}}><span style={{fontSize:15,color:C.green,fontWeight:700}}>✓ {verifyMethod==="mobile"?`Mobile +91 ${form.mobile}`:`Email ${form.email}`} verified!</span></Card>}
-          <div style={{display:"flex",gap:10,marginTop:14}}><Btn variant="ghost" onClick={()=>{setStep(2);setError("");}}>← Back</Btn><Btn onClick={()=>{if(!mobileVerified){setError("Please verify first");return;}setError("");setStep(4);}} disabled={!mobileVerified} style={{flex:1,justifyContent:"center"}}>Continue →</Btn></div>
-        </>}
-
-        {step === 4 && <>
-          <Card style={{background:C.greenBg,border:`1px solid ${C.green}`,marginBottom:16,padding:"12px 16px",textAlign:"center"}}><span style={{fontSize:13,color:C.green,fontWeight:600}}>✓ Verified · {form.first} · {form.course} · Class {form.studentClass}</span></Card>
-          <Field label="Create Password *" value={form.pass} onChange={v=>setForm({...form,pass:v})} type="password" placeholder="Min 6 characters" />
-          <Field label="Confirm Password *" value={form.confirm} onChange={v=>setForm({...form,confirm:v})} type="password" />
-          <div style={{display:"flex",gap:10}}><Btn variant="ghost" onClick={()=>setStep(3)}>← Back</Btn><Btn onClick={()=>{if(form.pass.length<6){setError("Min 6 characters");return;}if(form.pass!==form.confirm){setError("Passwords don't match");return;}onDone();}} variant="success" style={{flex:1,justifyContent:"center"}}>🎉 Complete Registration</Btn></div>
+          {!mobileVerified ? <Card style={{border:`1.5px solid ${C.gray200}`,padding:"14px 18px",marginBottom:14}}>
+            <div style={{fontSize:14,fontWeight:700,marginBottom:4}}>📱 Verify Mobile</div>
+            <div style={{fontSize:12,color:C.gray500,marginBottom:10}}>OTP will be sent to +91 {form.mobile}</div>
+            {!otpSent ? <Btn onClick={()=>{setOtpSent(true);setOtpTimer(30);}} style={{width:"100%",justifyContent:"center"}}>Send OTP</Btn> : <>
+              <div style={{background:"#f0fdf4",borderRadius:8,padding:"8px 12px",marginBottom:10,fontSize:13,color:C.green,display:"flex",justifyContent:"space-between"}}><span>✓ OTP sent</span>{otpTimer>0?<span style={{color:C.orange,fontWeight:600}}>{otpTimer}s</span>:<button onClick={()=>setOtpTimer(30)} style={{background:"none",border:"none",color:C.primary,fontWeight:600,cursor:"pointer",fontSize:13}}>Resend</button>}</div>
+              <Field label="Enter OTP" value={otpCode} onChange={v=>setOtpCode(v.replace(/\D/g,"").slice(0,6))} placeholder="Any 4-6 digits (demo)" />
+              <Btn onClick={()=>{if(otpCode.length<4){setError("Enter valid OTP");return;}setError("");setMobileVerified(true);}} variant="success" style={{width:"100%",justifyContent:"center"}}>Verify OTP</Btn>
+            </>}
+          </Card> : <Card style={{background:C.greenBg,border:`1px solid ${C.green}`,padding:"10px 14px",textAlign:"center",marginBottom:14}}><span style={{fontSize:13,color:C.green,fontWeight:700}}>✓ Mobile +91 {form.mobile} verified</span></Card>}
+          {mobileVerified && <>
+            <Field label="Create Password *" value={form.pass} onChange={v=>setForm({...form,pass:v})} type="password" placeholder="Min 6 characters" />
+            <Field label="Confirm Password *" value={form.confirm} onChange={v=>setForm({...form,confirm:v})} type="password" />
+          </>}
+          <div style={{display:"flex",gap:10,marginTop:6}}>
+            <Btn variant="ghost" onClick={()=>{setStep(1);setError("");}}>← Back</Btn>
+            <Btn onClick={completeRegistration} disabled={!mobileVerified} variant="success" style={{flex:1,justifyContent:"center"}}>🎉 Complete Registration</Btn>
+          </div>
         </>}
       </Card>
     </div>
@@ -1114,19 +1135,26 @@ export default function StudentApp() {
       {screen === "signin" && <SignIn onSignIn={()=>setScreen("dashboard")} onRegister={()=>setScreen("register")} />}
       {screen === "register" && <Registration onDone={()=>setScreen("editprofile")} />}
       {screen === "editprofile" && <EditProfile onSave={(profileData)=>{
-        // Auto-send WhatsApp welcome message
-        const studentName = student?.name || "Student";
-        const coursesText = (profileData?.courses||[]).join(", ") || "Not selected";
+        let current = {};
+        try { current = JSON.parse(localStorage.getItem("gr_current_student") || "{}") || {}; } catch {}
+        const merged = { ...current, ...(profileData || {}) };
+        try {
+          localStorage.setItem("gr_current_student", JSON.stringify(merged));
+          const list = JSON.parse(localStorage.getItem("gr_students") || "[]");
+          const updated = list.map(s => s.mobile === merged.mobile ? merged : s);
+          localStorage.setItem("gr_students", JSON.stringify(updated));
+        } catch {}
+
+        const studentName = merged.name || merged.first || "Student";
+        const studentMobile = merged.mobile || "";
+        const coursesText = (profileData?.courses || []).join(", ") || merged.course || "Not selected";
         const classText = profileData?.studentClass || "";
         const msg = `🎓 Welcome to GR Educational Consultancy!\n\nHi ${studentName},\nYour registration is complete! ✅\n\n📚 Class: ${classText}\n📋 Courses: ${coursesText}\n\n✨ You can now:\n• Take free mock tests\n• Access Pragati monitoring\n• Track your performance\n\nStart your journey: ${window.location.origin}\n\nAll the best! 🚀\n— GR Educational Team`;
-        
-        // Send to student
-        const studentMobile = student?.mobile || "";
+
         if (studentMobile) {
           window.open(`https://wa.me/91${studentMobile}?text=${encodeURIComponent(msg)}`, "_blank");
         }
 
-        // Show toast
         setAutoSendToast("✅ Welcome message sent via WhatsApp!");
         setTimeout(()=>setAutoSendToast(""), 4000);
         setScreen("dashboard");
