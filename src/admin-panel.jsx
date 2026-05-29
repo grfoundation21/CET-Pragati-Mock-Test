@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
+import * as db from './lib/db';
 
 // ═══ THEME COLORS ═══
 const C = {
@@ -228,10 +229,10 @@ export default function AdminPanel() {
   const [isTeacher, setIsTeacher] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
   const [page, setPage] = useState("dashboard");
-  const [students, setStudents] = useState(DEMO_STUDENTS);
+  const [students, setStudents] = useState([]);
   const [questions, setQuestions] = useState(DEMO_QUESTIONS);
   const [tests, setTests] = useState(DEMO_TESTS);
-  const [teachers, setTeachers] = useState(DEMO_TEACHERS);
+  const [teachers, setTeachers] = useState([]);
   const [colleges, setColleges] = useState(DEMO_COLLEGES);
   const [modes, setModes] = useState([{value:"combined",label:"Combined"},{value:"subject_wise",label:"Subject-wise"},{value:"chapter_wise",label:"Chapter-wise"},{value:"mock_test",label:"Mock Test"}]);
   const [streams, setStreams] = useState([{value:"PCM",label:"PCM"},{value:"PCB",label:"PCB"},{value:"Law",label:"Law"},{value:"MBA",label:"MBA"},{value:"Pharmacy",label:"Pharmacy"},{value:"Nursing",label:"Nursing"}]);
@@ -247,11 +248,34 @@ export default function AdminPanel() {
     "NEET":{subjects:{Physics:["Kinematics","Laws of Motion","Gravitation","Optics","Current Electricity","Electrostatics","Modern Physics","Thermodynamics"],Chemistry:["Chemical Reactions","Chemical Bonding","Mole Concept","Periodic Table","Organic Chemistry"],Biology:["Cell Biology","Genetics","Ecology","Human Physiology","Plant Physiology","Evolution"]}},
   });
 
+  useEffect(() => {
+    db.auth.getSession().then(async session => {
+      if (!session) return;
+      const [teacher, admin] = await Promise.all([
+        db.teachers.getByAuthId(session.user.id),
+        db.admins.getByAuthId(session.user.id),
+      ]);
+      if (!teacher && !admin) { await db.auth.signOut(); window.location.href = '/'; return; }
+      setCurrentUser(teacher || { ...admin, role: 'admin' });
+      setIsTeacher(!!teacher);
+      setLoggedIn(true);
+      const [s, t] = await Promise.all([db.students.getAll(), db.teachers.getAll()]);
+      setStudents(s);
+      setTeachers(t);
+    }).catch(console.error);
+  }, []);
+
   // Login screen
   if (!loggedIn) {
     return (
       <div style={{ minHeight:"100vh", background:`linear-gradient(135deg, #0E1B2E 0%, #1E3A5F 100%)`, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'General Sans',-apple-system,sans-serif" }}>
-        <LoginScreen onLogin={(user, teacher) => { setLoggedIn(true); setIsTeacher(teacher); setCurrentUser(user); }} teachers={teachers} />
+        <LoginScreen onLogin={async (user, isTeacherUser) => {
+          setLoggedIn(true); setIsTeacher(isTeacherUser); setCurrentUser(user);
+          try {
+            const [s, t] = await Promise.all([db.students.getAll(), db.teachers.getAll()]);
+            setStudents(s); setTeachers(t);
+          } catch(e) { console.error('Failed to load data:', e); }
+        }} />
       </div>
     );
   }
@@ -274,7 +298,7 @@ export default function AdminPanel() {
           </button>
         ))}
         <div style={{ marginTop:"auto", padding:"12px 20px", borderTop:"1px solid rgba(255,255,255,0.1)" }}>
-          <button onClick={()=>{setLoggedIn(false);setPage("dashboard");}} style={{ display:"flex", alignItems:"center", gap:8, background:"none", border:"none", color:"rgba(255,255,255,0.5)", cursor:"pointer", fontSize:12, fontFamily:"inherit" }}>🚪 Logout</button>
+          <button onClick={async ()=>{ await db.auth.signOut(); setLoggedIn(false); setPage("dashboard"); setStudents([]); setTeachers([]); }} style={{ display:"flex", alignItems:"center", gap:8, background:"none", border:"none", color:"rgba(255,255,255,0.5)", cursor:"pointer", fontSize:12, fontFamily:"inherit" }}>🚪 Logout</button>
         </div>
       </div>
 
@@ -314,19 +338,27 @@ export default function AdminPanel() {
 }
 
 // ═══ LOGIN SCREEN ═══
-function LoginScreen({ onLogin, teachers }) {
-  const [username, setUsername] = useState("admin");
-  const [password, setPassword] = useState("Admin@123");
+function LoginScreen({ onLogin }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const handleLogin = () => {
-    if (username === "admin" && password === "Admin@123") {
-      onLogin({ name:"Super Admin", role:"admin" }, false);
-      return;
+  const handleLogin = async () => {
+    if (!email.trim() || !password) { setError("Email and password required"); return; }
+    setLoading(true); setError("");
+    try {
+      const { session } = await db.auth.signIn(email.trim(), password);
+      const [teacher, admin] = await Promise.all([
+        db.teachers.getByAuthId(session.user.id),
+        db.admins.getByAuthId(session.user.id),
+      ]);
+      if (!teacher && !admin) throw new Error('Not authorized');
+      onLogin(teacher || { ...admin, role: 'admin' }, !!teacher);
+    } catch(e) {
+      setError("Invalid email or password");
+      setLoading(false);
     }
-    const teacher = teachers.find(t => t.username === username && t.password === password);
-    if (teacher) { onLogin(teacher, true); return; }
-    setError("Invalid username or password");
   };
 
   return (
@@ -337,10 +369,9 @@ function LoginScreen({ onLogin, teachers }) {
         <p style={{ color:C.gray500, fontSize:13, marginTop:4 }}>GR Educational Consultancy</p>
       </div>
       {error && <div style={{ background:C.redBg, color:C.red, padding:"8px 12px", borderRadius:8, fontSize:13, marginBottom:14 }}>{error}</div>}
-      <Input label="Username" value={username} onChange={v=>{setUsername(v);setError("");}} placeholder="admin or rajesh.k" />
+      <Input label="Email" value={email} onChange={v=>{setEmail(v);setError("");}} placeholder="admin@grfoundation.com" />
       <Input label="Password" value={password} onChange={v=>{setPassword(v);setError("");}} type="password" placeholder="Enter password" />
-      <Btn onClick={handleLogin} style={{ width:"100%", justifyContent:"center", padding:"12px", fontSize:15 }}>Sign In</Btn>
-      <div style={{ marginTop:16, fontSize:11, color:C.gray400, textAlign:"center" }}>Admin: admin / Admin@123 · Teacher: rajesh.k / Teacher@123</div>
+      <Btn onClick={handleLogin} disabled={loading} style={{ width:"100%", justifyContent:"center", padding:"12px", fontSize:15 }}>{loading ? "Signing in…" : "Sign In"}</Btn>
     </Card>
   );
 }
@@ -854,14 +885,29 @@ function ManageStudentsPage({ students, setStudents, role="admin" }) {
   const [filter, setFilter] = useState("");
   const [expandedId, setExpandedId] = useState(null);
   const [search, setSearch] = useState("");
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   const filtered = students.filter(s => {
     if (filter && s.status !== filter) return false;
     if (search && !s.name.toLowerCase().includes(search.toLowerCase()) && !s.email.toLowerCase().includes(search.toLowerCase()) && !s.course.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
   });
 
-  const updateStudent = (id, key, val) => setStudents(prev => prev.map(s => s.id===id ? {...s, [key]:val} : s));
-  const deleteStudent = (id) => { if(window.confirm("Remove this student?")) setStudents(prev => prev.filter(s => s.id!==id)); setExpandedId(null); };
+  const updateStudent = async (id, key, val) => {
+    const s = students.find(x => x.id === id);
+    if (!s) return;
+    const updated = { ...s, [key]: val };
+    setStudents(prev => prev.map(x => x.id === id ? updated : x));
+    try { await db.students.update(id, updated); }
+    catch(e) { console.error('Failed to update student:', e); setStudents(prev => prev.map(x => x.id === id ? s : x)); }
+  };
+  const deleteStudent = async (id) => {
+    const snapshot = students.find(s => s.id === id);
+    setStudents(prev => prev.filter(s => s.id !== id));
+    setExpandedId(null);
+    setConfirmDeleteId(null);
+    try { await db.students.remove(id); }
+    catch(e) { console.error('Failed to delete student:', e); if (snapshot) setStudents(prev => [snapshot, ...prev]); }
+  };
 
   return (
     <div>
@@ -889,7 +935,7 @@ function ManageStudentsPage({ students, setStudents, role="admin" }) {
         const expanded = expandedId === s.id;
         const statusColors = {active:{c:C.green,bg:C.greenBg},pending:{c:C.orange,bg:C.orangeBg},blocked:{c:C.red,bg:C.redBg},inactive:{c:C.gray400,bg:C.gray100}};
         const sc = statusColors[s.status] || statusColors.inactive;
-        const planColors = {prime:{c:"#d97706",bg:"#fef3c7",label:"Premium"},free:{c:C.gray500,bg:C.gray100,label:"Free"},crash:{c:C.red,bg:C.redBg,label:"Crash"},pragati:{c:"#0e7490",bg:"#ecfeff",label:"Pragati"}};
+        const planColors = {premium:{c:"#d97706",bg:"#fef3c7",label:"Premium"},free:{c:C.gray500,bg:C.gray100,label:"Free"},crash:{c:C.red,bg:C.redBg,label:"Crash"},pragati:{c:"#0e7490",bg:"#ecfeff",label:"Pragati"}};
         const pc = planColors[s.plan] || planColors.free;
 
         return (
@@ -939,7 +985,7 @@ function ManageStudentsPage({ students, setStudents, role="admin" }) {
                 <div style={{ marginBottom:12 }}>
                   <div style={{ fontSize:12, fontWeight:700, color:C.gray600, marginBottom:6 }}>💎 Change Plan</div>
                   <div style={{ display:"flex", gap:6 }}>
-                    {[{id:"free",label:"🆓 Free"},{id:"prime",label:"👑 Premium"},{id:"crash",label:"🚀 Crash"},{id:"pragati",label:"✨ Pragati"}].map(p=>{
+                    {[{id:"free",label:"🆓 Free"},{id:"premium",label:"👑 Premium"},{id:"crash",label:"🚀 Crash"},{id:"pragati",label:"✨ Pragati"}].map(p=>{
                       const active = s.plan===p.id;
                       return <button key={p.id} onClick={()=>updateStudent(s.id,"plan",p.id)} style={{ padding:"6px 14px", borderRadius:8, fontSize:11, fontWeight:active?700:500, cursor:"pointer", border:`1.5px solid ${active?C.primary:C.gray300}`, background:active?C.blue50:"#fff", color:active?C.primary:C.gray500 }}>{active?"✓ ":""}{p.label}</button>;
                     })}
@@ -957,8 +1003,14 @@ function ManageStudentsPage({ students, setStudents, role="admin" }) {
                   <button onClick={()=>window.open(`https://wa.me/91${s.mobile||s.parentMobile||""}`,"_blank")} style={{ padding:"6px 12px", borderRadius:6, border:"none", background:"#25D366", color:"#fff", fontSize:11, fontWeight:600, cursor:"pointer" }}>📱 WhatsApp</button>
                   <button onClick={()=>window.open(`https://wa.me/91${s.parentMobile||""}`,"_blank")} style={{ padding:"6px 12px", borderRadius:6, border:"none", background:"#0E7C66", color:"#fff", fontSize:11, fontWeight:600, cursor:"pointer" }}>👨‍👩‍👦 Parent</button>
                   <div style={{ flex:1 }} />
-                  <Btn variant="danger" onClick={()=>deleteStudent(s.id)} style={{ fontSize:11, padding:"6px 12px" }}>🗑 Remove</Btn>
-                  <Btn variant="success" onClick={()=>setExpandedId(null)} style={{ fontSize:11, padding:"6px 16px" }}>💾 Save</Btn>
+                  {confirmDeleteId === s.id ? <>
+                    <span style={{ fontSize:11, color:C.red, fontWeight:600, alignSelf:"center" }}>Remove student?</span>
+                    <Btn variant="danger" onClick={()=>deleteStudent(s.id)} style={{ fontSize:11, padding:"6px 12px" }}>Yes, remove</Btn>
+                    <Btn variant="outline" onClick={()=>setConfirmDeleteId(null)} style={{ fontSize:11, padding:"6px 12px" }}>Cancel</Btn>
+                  </> : <>
+                    <Btn variant="danger" onClick={()=>setConfirmDeleteId(s.id)} style={{ fontSize:11, padding:"6px 12px" }}>🗑 Remove</Btn>
+                    <Btn variant="success" onClick={()=>setExpandedId(null)} style={{ fontSize:11, padding:"6px 16px" }}>💾 Save</Btn>
+                  </>}
                 </div>
               </div>
             )}
@@ -1119,6 +1171,41 @@ function SettingsPage({ pragatiConfig, setPragatiConfig, streamConfig, setStream
   const [newStreamName, setNewStreamName] = useState("");
   const [newSubjectName, setNewSubjectName] = useState("");
   const [newTopicName, setNewTopicName] = useState("");
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [settingsSaved, setSettingsSaved] = useState("");
+
+  useEffect(() => {
+    Promise.all([
+      db.settings.get('brand'),
+      db.settings.get('plans'),
+      db.settings.get('pragati_config'),
+      db.settings.get('stream_config'),
+    ]).then(([brand, savedPlans, pragatiCfg, streamCfg]) => {
+      if (brand) { setBrandName(brand.brandName || "GR Educational Consultancy"); setTagline(brand.tagline || "With you at every step"); }
+      if (savedPlans) setPlans(savedPlans);
+      if (pragatiCfg) setPragatiConfig(pragatiCfg);
+      if (streamCfg) setStreamConfig(streamCfg);
+    }).catch(console.error);
+  }, []);
+
+  const saveAll = async () => {
+    setSettingsSaving(true);
+    try {
+      await Promise.all([
+        db.settings.upsert('brand', { brandName, tagline }),
+        db.settings.upsert('plans', plans),
+        db.settings.upsert('pragati_config', pragatiConfig),
+        db.settings.upsert('stream_config', streamConfig),
+      ]);
+      setSettingsSaved("All settings saved!");
+      setTimeout(() => setSettingsSaved(""), 3000);
+    } catch(e) {
+      console.error('Failed to save settings:', e);
+      setSettingsSaved("Save failed — see console");
+      setTimeout(() => setSettingsSaved(""), 3000);
+    }
+    setSettingsSaving(false);
+  };
 
   const addStream = () => {
     if (!newStreamName.trim()) return;
@@ -1143,8 +1230,18 @@ function SettingsPage({ pragatiConfig, setPragatiConfig, streamConfig, setStream
 
   return (
     <div>
-      <h1 style={{ fontSize:22, fontWeight:800, color:C.gray900, marginBottom:4 }}>Settings</h1>
-      <p style={{ color:C.gray500, fontSize:14, marginBottom:16 }}>Manage platform configuration</p>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:16 }}>
+        <div>
+          <h1 style={{ fontSize:22, fontWeight:800, color:C.gray900, marginBottom:4 }}>Settings</h1>
+          <p style={{ color:C.gray500, fontSize:14, margin:0 }}>Manage platform configuration</p>
+        </div>
+        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+          {settingsSaved && <span style={{ fontSize:12, color:settingsSaved.includes("failed") ? C.red : C.green, fontWeight:600 }}>✓ {settingsSaved}</span>}
+          <Btn variant="primary" onClick={saveAll} style={{ opacity:settingsSaving?0.6:1, pointerEvents:settingsSaving?"none":"auto" }}>
+            {settingsSaving ? "Saving…" : "💾 Save Settings"}
+          </Btn>
+        </div>
+      </div>
 
       {/* Settings tabs */}
       <div style={{ display:"flex", gap:0, marginBottom:20, borderBottom:`2px solid ${C.gray200}` }}>
@@ -1415,23 +1512,10 @@ function SettingsPage({ pragatiConfig, setPragatiConfig, streamConfig, setStream
 
 // ═══ TRANSACTIONS ═══
 function TransactionsPage({ students, setStudents }) {
-  const [transactions, setTransactions] = useState(() => {
-    try { 
-      const stored = JSON.parse(localStorage.getItem("gr_transactions")||"[]");
-      if (stored.length > 0) return stored;
-    } catch {}
-    // Demo transactions
-    return [
-      {id:"TXN001",studentName:"Rahul Sharma",studentMobile:"9876543210",planId:"premium",planName:"Premium",amount:499,method:"payment_link",date:"2026-05-15T10:30:00",status:"pending",courses:"MHT CET PCM"},
-      {id:"TXN002",studentName:"Priya Patil",studentMobile:"9876543212",planId:"crash",planName:"Crash Course",amount:999,method:"upi_direct",date:"2026-05-14T14:20:00",status:"pending",courses:"NEET"},
-      {id:"TXN003",studentName:"Vikram Joshi",studentMobile:"9876543214",planId:"premium",planName:"Premium",amount:499,method:"manual_upi",date:"2026-05-13T09:15:00",status:"approved",courses:"JEE",approvedDate:"2026-05-13T11:00:00"},
-      {id:"TXN004",studentName:"Kavita Rane",studentMobile:"9876543211",planId:"pragati",planName:"Pragati Monitor",amount:299,method:"payment_link",date:"2026-05-12T16:45:00",status:"approved",courses:"MHT CET PCB",approvedDate:"2026-05-12T17:30:00"},
-      {id:"TXN005",studentName:"Sanjay Patil",studentMobile:"9876543215",planId:"topic",planName:"Per Topic",amount:49,method:"upi_direct",date:"2026-05-11T11:10:00",status:"rejected",courses:"JEE"},
-      {id:"TXN006",studentName:"Arjun Nair",studentMobile:"9876543216",planId:"premium",planName:"Premium",amount:499,method:"payment_link",date:"2026-05-10T08:00:00",status:"approved",courses:"MHT CET PCM, JEE",approvedDate:"2026-05-10T09:00:00"},
-      {id:"TXN007",studentName:"Neha Kulkarni",studentMobile:"9876543225",planId:"crash",planName:"Crash Course",amount:999,method:"manual_upi",date:"2026-05-09T13:30:00",status:"pending",courses:"Law Entrance"},
-      {id:"TXN008",studentName:"Meera Iyer",studentMobile:"9876543223",planId:"topic",planName:"Per Topic",amount:49,method:"upi_direct",date:"2026-05-08T17:20:00",status:"approved",courses:"MHT CET PCM",approvedDate:"2026-05-08T18:00:00"},
-    ];
-  });
+  const [transactions, setTransactions] = useState([]);
+  useEffect(() => {
+    db.transactions.getAll().then(setTransactions).catch(console.error);
+  }, []);
   const [filterStatus, setFilterStatus] = useState("");
   const [filterCourse, setFilterCourse] = useState("");
   const [searchTxn, setSearchTxn] = useState("");
@@ -1448,22 +1532,21 @@ function TransactionsPage({ students, setStudents }) {
   const approved = transactions.filter(t=>t.status==="approved").length;
   const totalRevenue = transactions.filter(t=>t.status==="approved").reduce((a,t)=>a+t.amount,0);
 
-  const updateTxn = (id, status) => {
-    const updated = transactions.map(t => t.id===id ? {...t, status, approvedDate:new Date().toISOString()} : t);
-    setTransactions(updated);
-    localStorage.setItem("gr_transactions", JSON.stringify(updated));
-
-    // If approved, activate student plan
-    if (status === "approved") {
-      const txn = updated.find(t=>t.id===id);
-      if (txn) {
-        setStudents(prev => prev.map(s => s.name===txn.studentName ? {...s, plan:txn.planId} : s));
-        // WhatsApp confirmation
-        if (txn.studentMobile) {
-          window.open(`https://wa.me/91${txn.studentMobile}?text=${encodeURIComponent(`✅ Payment Approved!\n\n🎓 GR Educational\n📋 Plan: ${txn.planName}\n💰 ₹${txn.amount}\n\nYour ${txn.planName} plan is now active! Start learning.\n\n🙏 Thank you!`)}`, "_blank");
+  const updateTxn = async (id, status) => {
+    try {
+      const updated = await db.transactions.updateStatus(id, status);
+      setTransactions(prev => prev.map(t => t.id === id ? updated : t));
+      if (status === 'approved' && updated.studentId) {
+        const s = students.find(x => x.id === updated.studentId);
+        if (s) {
+          await db.students.update(updated.studentId, { ...s, plan: updated.planId });
+          setStudents(prev => prev.map(x => x.id === updated.studentId ? { ...x, plan: updated.planId } : x));
+        }
+        if (updated.studentMobile) {
+          window.open(`https://wa.me/91${updated.studentMobile}?text=${encodeURIComponent(`✅ Payment Approved!\n\n🎓 GR Educational\n📋 Plan: ${updated.planName}\n💰 ₹${updated.amount}\n\nYour ${updated.planName} plan is now active!\n\n🙏 Thank you!`)}`, "_blank");
         }
       }
-    }
+    } catch(e) { console.error('Failed to update transaction:', e); }
   };
 
   return (
@@ -2166,19 +2249,23 @@ function PragatiExamsPage({ streamConfig, pragatiExams, setPragatiExams, pragati
 function ManageTeachersPage({ teachers, setTeachers, colleges }) {
   const [expandedId, setExpandedId] = useState(null);
   const [showAdd, setShowAdd] = useState(false);
-  const [addForm, setAddForm] = useState({ name:"", email:"", phone:"", username:"", password:"Teacher@123", college_id:1, collegeName:"", collegeLogo:"", subjects:[], permissions:["question_bank","add_question"] });
+  const [addForm, setAddForm] = useState({ name:"", email:"", phone:"", auth_user_id:"", college_id:1, collegeName:"", collegeLogo:"", subjects:[], permissions:["question_bank","add_question"] });
+  const [addError, setAddError] = useState("");
 
-  const handleAddTeacher = () => {
-    if (!addForm.name.trim() || !addForm.username.trim()) return;
-    const newTeacher = {
-      id: Date.now(), name: addForm.name, email: addForm.email, phone: addForm.phone,
-      username: addForm.username, password: addForm.password, college_id: addForm.college_id,
-      collegeName: addForm.collegeName, collegeLogo: addForm.collegeLogo,
-      subjects: addForm.subjects, permissions: addForm.permissions,
-      status: "active", questions_added: 0, joinDate: new Date().toISOString().split("T")[0],
+  const handleAddTeacher = async () => {
+    if (!addForm.name.trim() || !addForm.email.trim()) return;
+    const row = {
+      name: addForm.name, email: addForm.email, phone: addForm.phone || null,
+      auth_user_id: addForm.auth_user_id || null,
+      college_id: addForm.college_id || null,
+      subjects: addForm.subjects, permissions: addForm.permissions, status: "active",
     };
-    setTeachers(prev => [...prev, newTeacher]);
-    setAddForm({ name:"", email:"", phone:"", username:"", password:"Teacher@123", college_id:1, collegeName:"", collegeLogo:"", subjects:[], permissions:["question_bank","add_question"] });
+    setAddError("");
+    try {
+      const created = await db.teachers.create(row);
+      setTeachers(prev => [...prev, { ...created, collegeName: addForm.collegeName, collegeLogo: addForm.collegeLogo }]);
+    } catch(e) { setAddError('Failed to add teacher: ' + (e.message || e)); return; }
+    setAddForm({ name:"", email:"", phone:"", auth_user_id:"", college_id:1, collegeName:"", collegeLogo:"", subjects:[], permissions:["question_bank","add_question"] });
     setShowAdd(false);
   };
 
@@ -2213,10 +2300,12 @@ function ManageTeachersPage({ teachers, setTeachers, colleges }) {
             <Input label="Full Name *" value={addForm.name} onChange={v=>setAddForm(p=>({...p,name:v}))} placeholder="Prof. Meena Sharma" />
             <Input label="Email *" value={addForm.email} onChange={v=>setAddForm(p=>({...p,email:v}))} placeholder="meena@college.com" />
           </div>
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12 }}>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
             <Input label="Phone" value={addForm.phone} onChange={v=>setAddForm(p=>({...p,phone:v}))} placeholder="9988776655" />
-            <Input label="Username *" value={addForm.username} onChange={v=>setAddForm(p=>({...p,username:v}))} placeholder="meena.s" />
-            <Input label="Password" value={addForm.password} onChange={v=>setAddForm(p=>({...p,password:v}))} placeholder="Teacher@123" />
+            <div>
+              <Input label="Supabase Auth ID" value={addForm.auth_user_id} onChange={v=>setAddForm(p=>({...p,auth_user_id:v}))} placeholder="UUID from Auth › Users" />
+              <div style={{ fontSize:11, color:C.gray400, marginTop:-10, marginBottom:8 }}>Create teacher's Auth account in Supabase first, then paste the UUID here</div>
+            </div>
           </div>
 
           {/* College / Brand */}
@@ -2286,9 +2375,10 @@ function ManageTeachersPage({ teachers, setTeachers, colleges }) {
           </div>
 
           {/* Save */}
+          {addError && <div style={{ color:C.red, fontSize:13, marginBottom:8, padding:"6px 12px", background:C.redBg, borderRadius:6 }}>{addError}</div>}
           <div style={{ display:"flex", gap:8 }}>
             <Btn variant="success" onClick={handleAddTeacher} style={{ padding:"10px 24px", fontSize:14 }}>💾 Add Teacher</Btn>
-            <Btn variant="ghost" onClick={()=>setShowAdd(false)} style={{ fontSize:13 }}>Cancel</Btn>
+            <Btn variant="ghost" onClick={()=>{setShowAdd(false);setAddError("");}} style={{ fontSize:13 }}>Cancel</Btn>
           </div>
         </Card>
       )}
@@ -2325,12 +2415,11 @@ function ManageTeachersPage({ teachers, setTeachers, colleges }) {
           </div>
           {expandedId===t.id && (
             <div style={{ marginTop:12, paddingTop:12, borderTop:`1px solid ${C.gray200}` }}>
-              {/* Login details */}
-              <div style={{ display:"flex", gap:16, marginBottom:14, padding:"8px 12px", background:C.gray50, borderRadius:8 }}>
-                <div style={{ fontSize:12 }}><span style={{ color:C.gray500 }}>Username:</span> <strong>{t.username}</strong></div>
-                <div style={{ fontSize:12 }}><span style={{ color:C.gray500 }}>Password:</span> <strong>{t.password}</strong></div>
-                <div style={{ fontSize:12 }}><span style={{ color:C.gray500 }}>Phone:</span> <strong>{t.phone}</strong></div>
-                <div style={{ fontSize:12 }}><span style={{ color:C.gray500 }}>Joined:</span> <strong>{t.joinDate}</strong></div>
+              {/* Teacher details */}
+              <div style={{ display:"flex", gap:16, marginBottom:14, padding:"8px 12px", background:C.gray50, borderRadius:8, flexWrap:"wrap" }}>
+                <div style={{ fontSize:12 }}><span style={{ color:C.gray500 }}>Email:</span> <strong>{t.email}</strong></div>
+                <div style={{ fontSize:12 }}><span style={{ color:C.gray500 }}>Phone:</span> <strong>{t.phone||"—"}</strong></div>
+                <div style={{ fontSize:12 }}><span style={{ color:C.gray500 }}>Auth ID:</span> <strong style={{fontSize:10}}>{t.auth_user_id||"—"}</strong></div>
               </div>
               {/* Permissions */}
               <div style={{ fontSize:13, fontWeight:700, color:C.gray700, marginBottom:8 }}>🔐 Permissions</div>
@@ -2353,9 +2442,9 @@ function ManageTeachersPage({ teachers, setTeachers, colleges }) {
                   style={{ fontSize:12, padding:"6px 14px", background:t.status==="active"?C.orangeBg:C.greenBg, color:t.status==="active"?C.orange:C.green, border:`1px solid ${t.status==="active"?C.orange:C.green}` }}>
                   {t.status==="active"?"⏸ Deactivate":"▶ Activate"}
                 </Btn>
-                <Btn variant="danger" onClick={()=>setTeachers(prev=>prev.filter(x=>x.id!==t.id))} style={{ fontSize:12, padding:"6px 14px" }}>🗑 Remove</Btn>
+                <Btn variant="danger" onClick={async ()=>{ const snap=t; setTeachers(prev=>prev.filter(x=>x.id!==t.id)); setExpandedId(null); try { await db.teachers.remove(t.id); } catch(e){ console.error(e); setTeachers(prev=>[snap,...prev]); } }} style={{ fontSize:12, padding:"6px 14px" }}>🗑 Remove</Btn>
                 <div style={{ flex:1 }} />
-                <Btn variant="success" onClick={()=>setExpandedId(null)} style={{ fontSize:12, padding:"8px 20px" }}>💾 Save</Btn>
+                <Btn variant="success" onClick={async ()=>{ try { await db.teachers.update(t.id, { permissions: t.permissions, status: t.status }); } catch(e){ console.error(e); } setExpandedId(null); }} style={{ fontSize:12, padding:"8px 20px" }}>💾 Save</Btn>
               </div>
             </div>
           )}
