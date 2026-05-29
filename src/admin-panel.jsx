@@ -258,7 +258,7 @@ export default function AdminPanel() {
 
   const role = isTeacher ? "teacher" : "admin";
   const navItems = isTeacher ? TEACHER_PERMISSIONS.filter(p => (currentUser?.permissions||[]).includes(p.id)).filter(p=>p.pageId).map(p=>({id:p.pageId,label:p.label,icon:p.icon})) :
-    [{id:"dashboard",label:"Dashboard",icon:"📊"},{id:"questions",label:"Question Bank",icon:"📚"},{id:"create-test",label:"Create Test",icon:"🧪"},{id:"manage-tests",label:"Manage Tests",icon:"📋"},{id:"manage-students",label:"Manage Students",icon:"👨‍🎓"},{id:"results",label:"Student Results",icon:"📊"},{id:"transactions",label:"Transactions",icon:"💰"},{id:"pragati",label:"Pragati Exams",icon:"✨"},{id:"settings",label:"Settings",icon:"⚙️"},{id:"teachers",label:"Manage Teachers",icon:"👨‍🏫"}];
+    [{id:"dashboard",label:"Dashboard",icon:"📊"},{id:"questions",label:"Question Bank",icon:"📚"},{id:"add-question",label:"Add Question",icon:"➕"},{id:"csv-upload",label:"CSV Upload",icon:"📄"},{id:"create-test",label:"Create Test",icon:"🧪"},{id:"manage-tests",label:"Manage Tests",icon:"📋"},{id:"manage-students",label:"Manage Students",icon:"👨‍🎓"},{id:"results",label:"Student Results",icon:"📊"},{id:"transactions",label:"Transactions",icon:"💰"},{id:"pragati",label:"Pragati Exams",icon:"✨"},{id:"settings",label:"Settings",icon:"⚙️"},{id:"teachers",label:"Manage Teachers",icon:"👨‍🏫"}];
 
   return (
     <div style={{ display:"flex", minHeight:"100vh", fontFamily:"'General Sans',-apple-system,sans-serif" }}>
@@ -301,8 +301,8 @@ export default function AdminPanel() {
           {page === "settings" && <SettingsPage pragatiConfig={pragatiConfig} setPragatiConfig={setPragatiConfig} streamConfig={streamConfig} setStreamConfig={setStreamConfig} />}
           {page === "teachers" && <ManageTeachersPage teachers={teachers} setTeachers={setTeachers} colleges={colleges} />}
           {/* Teacher-specific pages */}
-          {page === "add-question" && <AddQuestionPage questions={questions} setQuestions={setQuestions} currentUser={currentUser} />}
-          {page === "csv-upload" && <CSVUploadPage questions={questions} setQuestions={setQuestions} currentUser={currentUser} />}
+          {page === "add-question" && <AddQuestionPage questions={questions} setQuestions={setQuestions} currentUser={currentUser} role={role} />}
+          {page === "csv-upload" && <CSVUploadPage questions={questions} setQuestions={setQuestions} currentUser={currentUser} role={role} />}
           {page === "my-tests" && <ManageTestsPage tests={tests.filter(t=>t.created_by_teacher===currentUser?.id||t.created_by_role==="teacher")} setTests={setTests} students={students} />}
           {page === "my-students" && <ManageStudentsPage students={students.filter(s=>s.college===currentUser?.college_id)} setStudents={setStudents} role="teacher" />}
           {page === "create-test" && <CreateTestPage questions={isTeacher ? questions.filter(q=>q.created_by_teacher===currentUser?.id) : questions} students={students} streams={streams} courses={courses} tests={tests} setTests={setTests} />}
@@ -1550,13 +1550,17 @@ function TransactionsPage({ students, setStudents }) {
 }
 
 // ═══ ADD QUESTION (Teacher/Admin) ═══
-function AddQuestionPage({ questions, setQuestions, currentUser }) {
+function AddQuestionPage({ questions, setQuestions, currentUser, role }) {
+  const isAdmin = role === "admin";
   const [form, setForm] = useState({ question_text:"", option_a:"", option_b:"", option_c:"", option_d:"", correct_option:0, subject_id:1, chapter:"", difficulty:"medium", solution:"" });
   const [saved, setSaved] = useState(false);
 
   const handleSave = () => {
     if (!form.question_text.trim()) return;
-    const newQ = { ...form, id:Date.now(), status:"active", bank:"teacher", created_by_teacher:currentUser?.id||null };
+    const newQ = { ...form, id:Date.now(), status:"active",
+      bank: isAdmin ? "admin" : "teacher",
+      created_by_teacher: isAdmin ? null : (currentUser?.id || null),
+      approved_by_admin: isAdmin || undefined };
     setQuestions(prev => [...prev, newQ]);
     setForm({ question_text:"", option_a:"", option_b:"", option_c:"", option_d:"", correct_option:0, subject_id:form.subject_id, chapter:"", difficulty:"medium", solution:"" });
     setSaved(true); setTimeout(()=>setSaved(false), 3000);
@@ -1593,7 +1597,8 @@ function AddQuestionPage({ questions, setQuestions, currentUser }) {
 }
 
 // ═══ CSV UPLOAD (Teacher/Admin) ═══
-function CSVUploadPage({ questions, setQuestions, currentUser }) {
+function CSVUploadPage({ questions, setQuestions, currentUser, role }) {
+  const isAdmin = role === "admin";
   const [csvText, setCsvText] = useState("");
   const [preview, setPreview] = useState([]);
   const [imported, setImported] = useState(0);
@@ -1613,7 +1618,10 @@ function CSVUploadPage({ questions, setQuestions, currentUser }) {
   const handleImport = () => {
     const valid = preview.filter(r=>!r._error);
     const newQs = valid.map((r,i) => ({
-      ...r, id:Date.now()+i, status:"active", bank:"teacher", created_by_teacher:currentUser?.id||null,
+      ...r, id:Date.now()+i, status:"active",
+      bank: isAdmin ? "admin" : "teacher",
+      created_by_teacher: isAdmin ? null : (currentUser?.id || null),
+      approved_by_admin: isAdmin || undefined,
       subject_id: SUBJECTS.find(s=>s.name.toLowerCase()===r.subject?.toLowerCase())?.id || 1,
     }));
     setQuestions(prev => [...prev, ...newQs]);
